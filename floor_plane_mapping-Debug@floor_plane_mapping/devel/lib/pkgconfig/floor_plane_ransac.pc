@@ -1,0 +1,8 @@
+prefix=/home/group3/catkin_ws/src/floor_plane_ransac/devel
+
+Name: floor_plane_ransac
+Description: Description of floor_plane_ransac
+Version: 0.1.0
+Cflags: 
+Libs: -L/home/group3/catkin_ws/src/floor_plane_ransac/devel/lib 
+Requires: pcl_ros roscpp sensor_msgs tf visualization_msgs message_runtime

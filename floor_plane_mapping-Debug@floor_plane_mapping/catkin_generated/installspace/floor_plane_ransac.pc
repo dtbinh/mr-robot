@@ -1,0 +1,8 @@
+prefix=/usr/local
+
+Name: floor_plane_ransac
+Description: Description of floor_plane_ransac
+Version: 0.1.0
+Cflags: 
+Libs: -L/usr/local/lib 
+Requires: pcl_ros roscpp sensor_msgs tf visualization_msgs message_runtime
