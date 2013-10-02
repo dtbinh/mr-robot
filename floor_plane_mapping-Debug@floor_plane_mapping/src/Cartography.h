@@ -10,15 +10,8 @@
 #include <map>
 #include <math.h>
 
-// Flags for the data contained in the matrix
-// Unknow & Traversable = Traversable
-// All the rest & NonTraversable = NonTraversable
-enum CellState
-{
-	NonTraversable = 0,
-	Traversable = 1,
-	Unknown = 3	// Default state
-};
+#define nullptr 0;
+
 
 // Stores the block matrix row/column for easier access
 struct BlockMatrixData;

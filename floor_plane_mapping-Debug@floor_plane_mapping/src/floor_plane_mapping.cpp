@@ -13,6 +13,7 @@
 
 #include <sys/time.h>
 #include "Cartography.h"
+#include "Cell.h"
 
 
 class FloorPlaneMapping {
@@ -24,12 +25,17 @@ protected:
 	ros::NodeHandle nh_;
 	std::string base_frame_;
 	std::string world_frame_;
+
 	double max_range_;
 	double tolerance;
+	double traverse_threshold;
 	int n_samples;
 
 	pcl::PointCloud<pcl::PointXYZ> lastpc_;
-	Cartography *m_pCartography;
+
+	// Mapping
+	Cell* pCell;
+	Cartography *pCartography;
 
 protected:
 	// ROS Callbacks
@@ -77,6 +83,13 @@ protected:
 		gettimeofday(&start, NULL);
 		//
 		ROS_INFO("%d useful points out of %d", (int)n, (int)temp.size());
+
+
+		// Set up a cell
+		pCell = new Cell();
+		std::vector<geometry_msgs::PointStamped> cellPoints;
+		Eigen::Vector3f normalVector;
+
 		// Let's ransack!
 		for (unsigned int i = 0; i < (unsigned) n_samples; i++) {
 			if (n == 0) {
@@ -93,7 +106,7 @@ protected:
 			// Calculate the plane ax+by+cz+d=0
 			Eigen::Vector3f p = samplePoints[1] - samplePoints[0];
 			Eigen::Vector3f q = samplePoints[2] - samplePoints[1];
-			Eigen::Vector3f normalVector = p.cross(q);
+			normalVector = p.cross(q);
 			normalVector.normalize(); // Normalize the vector
 			double d = -samplePoints[1].dot(normalVector);
 
@@ -103,6 +116,8 @@ protected:
 				// Calculate the score for this model
 				if (calcDistance(lastpc_[pidx[i]], normalVector, d)
 						<= tolerance) {
+					// Store the points to the cell
+					cellPoints.push_back(CloudPointToPointStamped(lastpc_[pidx[i]]));
 					score++;
 				}
 				// Update if a better model is found
@@ -114,6 +129,10 @@ protected:
 				}
 			}
 		}
+
+		pCell->normalVector = normalVector;
+		pCell->points = cellPoints;
+		updateCellState(*pCell);
 		// At the end, make sure to store the best plane estimate in X
 		// X = {a,b,c}. This will be used for display
 		gettimeofday(&end, NULL); // Stop the timer
@@ -158,12 +177,12 @@ protected:
 
 		marker_pub_.publish(m);
 
+/*
 		geometry_msgs::PointStamped p;
 		p.point.x = O[0];
 		p.point.y = O[1];
 		currentCell(p);
-		//
-//		transformPoint();
+*/
 	}
 
 public:
@@ -174,6 +193,7 @@ public:
 		nh_.param("max_range", max_range_, 5.0);
 		nh_.param("n_samples", n_samples, 1000);
 		nh_.param("tolerance", tolerance, 1.0);
+		nh_.param("traverse_threshold",traverse_threshold, 1.2);
 
 		ROS_INFO("Searching for Plane parameter z = a x + b y + c");
 		ROS_INFO(
@@ -188,11 +208,11 @@ public:
 		marker_pub_ = nh_.advertise<visualization_msgs::Marker>("floor_plane",
 				1);
 
-		m_pCartography = new Cartography(nh_, 1.0, 10);
+		pCartography = new Cartography(nh_, 1.0, 10);
 	}
 
 	~FloorPlaneMapping(){
-		delete m_pCartography;
+		delete pCartography;
 	}
 
 	ros::NodeHandle getNodeHanlder(){
@@ -264,6 +284,7 @@ public:
 	void transformPointToWorld(geometry_msgs::PointStamped& basePoint, geometry_msgs::PointStamped& worldPoint) {
 		tf::TransformListener listener(ros::Duration(10));
 		basePoint.header.frame_id = base_frame_;
+		basePoint.header.stamp = ros::Time();
 		try {
 			listener.waitForTransform(world_frame_, basePoint.header.frame_id,
 					basePoint.header.stamp, ros::Duration(3.0));
@@ -280,7 +301,7 @@ public:
 	// TODO
 	// Get the state of the cell
 	// according to the normal vector of the cell
-	CellState getCellState(Eigen::Vector3f& normalVector){
+	CellState getCellState(const Eigen::Vector3f& normalVector){
 		CellState cellState = Unknown;
 		Eigen::Vector3f zVector;
 		double angle;
@@ -289,7 +310,7 @@ public:
 		angle = acos(normalVector.dot(zVector)/(normalVector.norm()*zVector.norm()));
 		// TODO
 		// Set the threshold
-		if (fabs(angle) > 1.2)
+		if (fabs(angle) >= traverse_threshold)
 			cellState = Traversable;
 		else
 			cellState = NonTraversable;
@@ -302,17 +323,36 @@ public:
 		Cell cell;
 		geometry_msgs::PointStamped worldPoint;
 		transformPointToWorld(point, worldPoint);
-		cell.x = round(double(worldPoint.point.x));
-		cell.y = round(double(worldPoint.point.y));
-		//		currentCell.cellState = getCellState();
-		m_pCartography->Update(cell.x, cell.y, cell.cellState);
+//		cell.x = (double)worldPoint.point.x;
+//		cell.y = (double)worldPoint.point.y;
+//		//		currentCell.cellState = getCellState();
+//		pCartography->Update(cell.x, cell.y, cell.state);
 		ROS_INFO("---- Point x: %.2f y: %.2f",point.point.x,point.point.y);
 		ROS_INFO("---- Point x: %.2f y: %.2f",worldPoint.point.x,worldPoint.point.y);
-		ROS_INFO("---- Current cell x: %.2f y: %.2f",cell.x,cell.y);
+//		ROS_INFO("---- Current cell x: %.2f y: %.2f",cell.x,cell.y);
 
 		return cell;
 	}
 
+	geometry_msgs::PointStamped CloudPointToPointStamped(pcl::PointXYZ& point){
+		geometry_msgs::PointStamped pointStamped;
+		pointStamped.point.x = point.x;
+		pointStamped.point.y = point.y;
+		return pointStamped;
+	}
+
+	void updateCellState(Cell& cell) {
+		// TODO
+		// Iterate
+		cell.state = getCellState(cell.normalVector);
+		cell.transformPoints(base_frame_,world_frame_);
+		std::vector<pcl::PointXYZ>::iterator pointsIterator;
+		for (pointsIterator = cell.points.begin();
+				pointsIterator != cell.points.end(); pointsIterator++) {
+			pCartography->Update(pointsIterator->x, pointsIterator->y,
+					cell.state);
+		}
+	}
 };
 
 int main(int argc, char * argv[]) {

@@ -5,6 +5,7 @@
 // http://wiki.ros.org/catkin/CMakeLists.txt
 
 #include "Cartography.h"
+#include "Cell.h"
 
 using namespace std;
 
@@ -26,10 +27,10 @@ struct BlockMatrixData
 	}
 };
 
-Cartography::Cartography(ros::NodeHandle &n, double dCellSize, unsigned int uiCellSize)
-	: m_ImageTransport(n), m_dCellSize(dCellSize), m_uiCellSize(uiCellSize),
-	m_MinCellRow5INT_MAX), m_MaxCellRow(INT_MIN), m_MinCellColumn(INT_MAX), m_MaxCellColumn(INT_MIN),
-	m_pFinalMatrix(nullptr), m_OldMaxCellRow(0)
+Cartography::Cartography(ros::NodeHandle &n, double dCellSize, unsigned int uiCellSize):
+	m_ImageTransport(n), m_dCellSize(dCellSize), m_uiCellSize(uiCellSize),
+	m_MinCellRow(INT_MAX), m_MaxCellRow(INT_MIN), m_MinCellColumn(INT_MAX), m_MaxCellColumn(INT_MIN),
+	m_pFinalMatrix(nullptr), m_OldMaxCellRow(0),
 	m_OldMinCellRow(0),
 	m_OldMaxCellColumn(0),
 	m_OldMinCellColumn(0)
