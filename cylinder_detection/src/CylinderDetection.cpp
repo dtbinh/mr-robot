@@ -14,9 +14,15 @@
 #include <map>
 #include <vector>
 
-static unsigned int THRESHOLD_LOWER_TO_PARSE_PLANE = 10;
-static unsigned int THRESHOLD_UPPER_TO_PARSE_PLANE = 600;
-static unsigned int THRESHOLD_TO_ACCEPT_CIRCLE_FOUND = 10;
+#define _DO_LINEAR_REGRESSION
+//#define _VERBOSE
+#define __forceinline inline
+
+static int THRESHOLD_LOWER_TO_PARSE_PLANE = 10;
+static int THRESHOLD_UPPER_TO_PARSE_PLANE = 600;
+static int THRESHOLD_TO_ACCEPT_CIRCLE_FOUND = 10;
+static int MIN_NUM_VALID_SECTIONS_TO_ACCEPT_CYLINDER = 4;
+static double TOLERANCE_FOR_PLANE_CONCATENATION = 0.01;
 
 //==================//
 // Helper functions //
@@ -58,6 +64,43 @@ static __forceinline bool IsInCircle(const pcl::PointXYZ& center, const double &
 static void GetCenterRadiusFrom3Points2D(pcl::PointXYZ& center, double &dRadius,
 								  const pcl::PointXYZ& A, const pcl::PointXYZ& B, const pcl::PointXYZ& C)
 {
+
+	Eigen::MatrixXf M1(3,3);
+	M1(0,0) = A.x*A.x+A.y*A.y;
+	M1(0,1) = A.y;
+	M1(0,2) = 1;
+	M1(1,0) = B.x*B.x+B.y*B.y;
+	M1(1,1) = B.y;
+	M1(1,2) = 1;
+	M1(2,0) = C.x*C.x+C.y*C.y;
+	M1(2,1) = C.y;
+	M1(2,2) = 1;
+
+	Eigen::MatrixXf M2(3,3);
+	M2(0,0) = A.x;
+	M2(0,1) = A.y;
+	M2(0,2) = 1;
+	M2(1,0) = B.x;
+	M2(1,1) = B.y;
+	M2(1,2) = 1;
+	M2(2,0) = C.x;
+	M2(2,1) = C.y;
+	M2(2,2) = 1;
+
+	center.x = M1.determinant()/(2*M2.determinant());
+
+	M1(0,1) = A.x*A.x+A.y*A.y;
+	M1(0,0) = A.x;
+	M1(0,2) = 1;
+	M1(1,1) = B.x*B.x+B.y*B.y;
+	M1(1,0) = B.x;
+	M1(1,2) = 1;
+	M1(2,1) = C.x*C.x+C.y*C.y;
+	M1(2,0) = C.x;
+	M1(2,2) = 1;
+
+	center.y = M1.determinant()/(2*M2.determinant());
+	/*
 	// Takes the bisections of AB and AC and computes their intersection
 	Eigen::Vector2f AB;
 	Eigen::Vector2f AC;
@@ -69,21 +112,23 @@ static void GetCenterRadiusFrom3Points2D(pcl::PointXYZ& center, double &dRadius,
 
 	// a1*(y-y_i1)-b1*(x-x_i1)=0 where i1 is the middle of AB
 	// a2*(y-y_i2)-b2*(x-x_i2)=0 where i2 is the middle of AC
-	double a1 = -AB.y;
-	double b1 = AB.x;
-	double a2 = -AC.y;
-	double b2 = AC.x;
-	center.z = (A.z+B.z+C.z)/3;
+	double a1 = -AB.y();
+	double b1 = AB.x();
+	double a2 = -AC.y();
+	double b2 = AC.x();
 	if(a1 == 0)
 	{
-		center.x = I1.x;
-		center.y = b2*(center.x-I2.x)/a2+I2.y;	// We assume AB and AC are not //. Hence a1 and a2 can't be both null.
+		center.x = I1.x();
+		center.y = b2*(center.x-I2.x())/a2+I2.y();	// We assume AB and AC are not //. Hence a1 and a2 can't be both null.
 	}
 	else
 	{
-		center.x = (-b2*I2.x+a2*I1.x/a1+a2*(I2.y-I1.y))/(a2*b1/a1-b2);
-		center.y = b1*(center.x-I1.x)/a1+I1.y;
+		center.x = (-b2*I2.x()+a2*I1.x()/a1+a2*(I2.y()-I1.y()))/(a2*b1/a1-b2);
+		center.y = b1*(center.x-I1.x())/a1+I1.y();
 	}
+	*/
+
+	center.z = (A.z+B.z+C.z)/3;
 	dRadius = (sqrt( (A.x-center.x)*(A.x-center.x) + (A.y-center.y)*(A.y-center.y) + (A.z-center.z)*(A.z-center.z) )
 		+ sqrt( (B.x-center.x)*(B.x-center.x) + (B.y-center.y)*(B.y-center.y) + (B.z-center.z)*(B.z-center.z) )
 		+sqrt( (C.x-center.x)*(C.x-center.x) + (C.y-center.y)*(C.y-center.y) + (C.z-center.z)*(C.z-center.z) ))/3;
@@ -109,14 +154,14 @@ static long GetElapsedTime(timeval& start, timeval& end)
 class CylinderDetection
 {
 protected:
-	ros::Subscriber m_Subscriber
-		ros::Publisher marker_pub_;
+	ros::Subscriber m_Subscriber;
+	ros::Publisher marker_pub_;
 	tf::TransformListener listener_;
 
 	ros::NodeHandle m_NodeHandle;
 	std::string m_strBaseFrame;
 	double m_dMaxRange;
-	double m_dTolerance;
+	double m_dRansacTolerance;
 	int m_nSamples;
 
 	pcl::PointCloud<pcl::PointXYZ> m_PointCloud;
@@ -130,6 +175,7 @@ protected:
 	//==============//
 	// ROS Callback //
 	void pc_callback(const sensor_msgs::PointCloud2ConstPtr msg) {
+
 		pcl::PointCloud<pcl::PointXYZ> temp;
 		pcl::fromROSMsg(*msg, temp);
 		// Make sure the point cloud is in the base-frame
@@ -141,6 +187,7 @@ protected:
 		//=================//
 		// Point filtering //
 		//=================//
+		m_MapPlaneSections.clear();
 		unsigned int n = temp.size();
 		// First count the useful points
 		for (unsigned int i = 0; i < n; i++) {
@@ -185,15 +232,21 @@ protected:
 			// Stores the radius for the best model
 			double radius;
 
+
+
 			// Reference on the vector of points indices which belong to the section pointed by 'it'
 			auto pvPoints = &(it->second);	// pvPoint has type std::vector<size_t>*
 			n = pvPoints->size();	// # points in the section 'z = it->first'
+
+#ifdef _VERBOSE
+			ROS_INFO("%d useful points in the section at z = %.2f", n, it->first);
+#endif
+
 			if(n < THRESHOLD_LOWER_TO_PARSE_PLANE)
 				continue;
 			if(n > THRESHOLD_UPPER_TO_PARSE_PLANE)
 				continue;
 
-			ROS_INFO("%d useful points in the section at z = %.2f", n, it->first);
 
 			////////////////
 			// RANSACK START
@@ -232,12 +285,22 @@ protected:
 				// Calculate the circle which intersects the 3 points chosen
 				GetCenterRadiusFrom3Points2D(centerForCurrentIteration, radiusForCurrentIteration, samplePoints[0], samplePoints[1], samplePoints[2]);
 
+#ifdef _VERBOSE
+				/*
+			ROS_INFO("Circle from A(%.5f, %.5f, %.5f) B(%.5f, %.5f, %.5f) C(%.5f, %.5f, %.5f) - Center (%.2f, %.2f, %.2f) Radius %.2f", samplePoints[0].x, samplePoints[0].y, samplePoints[0].z,
+					samplePoints[1].x, samplePoints[1].y, samplePoints[1].z,
+					samplePoints[2].x, samplePoints[2].y, samplePoints[2].z,
+					centerForCurrentIteration.x, centerForCurrentIteration.y, centerForCurrentIteration.z, radiusForCurrentIteration );
+				 */
+#endif
+
+
 				// Evaluation
 				size_t score = 0;
 				for (auto itPtIndex = pvPoints->begin(); itPtIndex!=pvPoints->end(); ++itPtIndex)
 				{
 					// Calculate the score for this model
-					if (IsInCircle(centerForCurrentIteration, radiusForCurrentIteration, m_PointCloud[*itPtIndex], m_dTolerance)
+					if (IsInCircle(centerForCurrentIteration, radiusForCurrentIteration, m_PointCloud[*itPtIndex], m_dRansacTolerance))
 					{
 						score++;
 						vFittingPointsTemp.push_back(*itPtIndex);
@@ -249,17 +312,16 @@ protected:
 				{
 					best = score;
 					center = centerForCurrentIteration;
-					radius = radiusForCurrentIteration
+					radius = radiusForCurrentIteration;
 						vFittingPoints = vFittingPointsTemp;
 				}
 			}
 			// END OF RANSAC FOR THIS SECTION
 			// ^___^
 
-			if (score < THRESHOLD_TO_ACCEPT_CIRCLE_FOUND)
+			if (best < THRESHOLD_TO_ACCEPT_CIRCLE_FOUND)
 				continue;
 
-#define _DO_LINEAR_REGRESSION
 #ifdef _DO_LINEAR_REGRESSION
 			//////////////////////////////////////////
 			// Linear regression to refine the results
@@ -275,7 +337,7 @@ protected:
 			}
 
 			A(2,2) = n;
-			for (auto itPtIndex = vFittingPoints.begin(); itPtIndex != vFittingPoints.end(); ++vFittingPoints)
+			for (auto itPtIndex = vFittingPoints.begin(); itPtIndex != vFittingPoints.end(); ++itPtIndex)
 			{
 				// Assign x,y to the coordinates of the point we are considering.
 				double x = m_PointCloud[*itPtIndex].x;
@@ -305,13 +367,18 @@ protected:
 			// At last add the circle found to mapCirclesInPlaneSections
 			mapCirclesInPlaneSections[it->first] = std::make_pair(center, radius);
 
-			ROS_INFO("Circle found at z = %.2f Score %d Center (%.2f, %.2f, %.2f) Radius %.2f", it->first, (int)best, center.x, center.y, center.z, radius );
-
+#ifdef _VERBOSE
+			ROS_INFO("Circle found at z = %.2f with score %d and Center (%.2f, %.2f) Radius %.2f", it->first, (int)best, center.x, center.y, radius );
+#endif
 		}
+
+#ifdef _VERBOSE
+			ROS_INFO("%d planes with a valid circle inside", mapCirclesInPlaneSections.size() );
+#endif
 
 		//==================================================
 		// CONCAT THE RESULTS FROM mapCirclesInPlaneSections
-		if(mapCirclesInPlaneSections.size() < 3)
+		if(mapCirclesInPlaneSections.size() < MIN_NUM_VALID_SECTIONS_TO_ACCEPT_CYLINDER)
 			return;	// Not enough acceptable sections to consider that there is a cylinder
 
 		pcl::PointXYZ meanCenter = pcl::PointXYZ(0, 0, 0);
@@ -321,10 +388,14 @@ protected:
 		double dTopCap;
 		for(auto it = mapCirclesInPlaneSections.begin(); it!=mapCirclesInPlaneSections.end(); ++it)
 		{
-			auto itNext = it+1;
+			auto itNext = it;
+			++itNext;
+#ifdef _VERBOSE
+			ROS_INFO("Distance between centers %.2f Difference in radius %.2f Section count %d", GetDistanceBetweenPoints2D(it->second.first, itNext->second.first), fabs(it->second.second-itNext->second.second), numSections );
+#endif
 			if(itNext != mapCirclesInPlaneSections.end())
 			{
-				if(GetDistanceBetweenPoints2D(it->second.first, itNext->second.first) < 0.04 && fabs(it->second.second-itNext->second.second) < 0.04)
+				if(GetDistanceBetweenPoints2D(it->second.first, itNext->second.first) < TOLERANCE_FOR_PLANE_CONCATENATION && fabs(it->second.second-itNext->second.second) < TOLERANCE_FOR_PLANE_CONCATENATION)
 				{
 					if(dBottomCap == DBL_MAX)
 						dBottomCap = it->first;
@@ -339,16 +410,50 @@ protected:
 					meanCenter.x /= numSections;
 					meanCenter.y /= numSections;
 					meanRadius /= numSections;
-					if(numSections >= 3)
-						// if(numSections < 3) Not enough acceptable sections to consider that there is a cylinder
-					else
+					if(numSections >= MIN_NUM_VALID_SECTIONS_TO_ACCEPT_CYLINDER)
 					{
-						ROS_INFO("Cylinder found: Center (%.2f, %.2f) Radius %.2f Bottom z = %.2f Top z = %.2f", meanCenter.x, meanCenter.y, dBottomCap, dTopCap);
+						geometry_msgs::PointStamped robotSpaceCenter;
+						robotSpaceCenter.point.x = meanCenter.x;
+						robotSpaceCenter.point.y = meanCenter.y;
+						listener_.waitForTransform("/world", m_strBaseFrame,
+												msg->header.stamp, ros::Duration(1.0));
+						tf::StampedTransform transform;
+						listener_.lookupTransform("/world", m_strBaseFrame,
+												msg->header.stamp, transform);
+
+						// if(numSections < MIN_NUM_VALID_SECTIONS_TO_ACCEPT_CYLINDER) Not enough acceptable sections to consider that there is a cylinder
+						auto worldSpaceCenter = transform * tf::Vector3(robotSpaceCenter.point.x, robotSpaceCenter.point.y, robotSpaceCenter.point.z);
+						ROS_INFO("Cylinder found: Center (%.2f, %.2f) Radius %.2f Bottom z = %.2f Top z = %.2f", meanCenter.x, meanCenter.y, meanRadius, dBottomCap, dTopCap);
+						ROS_INFO("Cylinder found (World space coordinates): Center (%.2f, %.2f) Radius %.2f Bottom z = %.2f Top z = %.2f", worldSpaceCenter.x(), worldSpaceCenter.y(), meanRadius, dBottomCap, dTopCap);
 					}
 					meanCenter = pcl::PointXYZ(0, 0, 0);
 					meanRadius = 0;
 					numSections = 1;
 					dBottomCap = DBL_MAX;
+				}
+			}
+			else
+			{
+				dTopCap = it->first;
+				meanCenter.x /= numSections;
+				meanCenter.y /= numSections;
+				meanRadius /= numSections;
+				if(numSections >= MIN_NUM_VALID_SECTIONS_TO_ACCEPT_CYLINDER)
+				{
+					geometry_msgs::PointStamped robotSpaceCenter;
+					robotSpaceCenter.point.x = meanCenter.x;
+					robotSpaceCenter.point.y = meanCenter.y;
+					listener_.waitForTransform("/world", m_strBaseFrame,
+							msg->header.stamp, ros::Duration(1.0));
+					tf::StampedTransform transform;
+					listener_.lookupTransform("/world", m_strBaseFrame,
+							msg->header.stamp, transform);
+
+					// if(numSections < MIN_NUM_VALID_SECTIONS_TO_ACCEPT_CYLINDER) Not enough acceptable sections to consider that there is a cylinder
+					auto worldSpaceCenter = transform * tf::Vector3(robotSpaceCenter.point.x, robotSpaceCenter.point.y, robotSpaceCenter.point.z);
+					ROS_INFO("Cylinder found: Center (%.2f, %.2f) Radius %.2f Bottom z = %.2f Top z = %.2f", meanCenter.x, meanCenter.y, meanRadius, dBottomCap, dTopCap);
+					ROS_INFO("Cylinder found (World space coordinates): Center (%.2f, %.2f) Radius %.2f Bottom z = %.2f Top z = %.2f", worldSpaceCenter.x(), worldSpaceCenter.y(), meanRadius, dBottomCap, dTopCap);
+
 				}
 			}
 
@@ -359,23 +464,27 @@ protected:
 
 public:
 	CylinderDetection() :
-		m_NodeHandle("~") {
+		m_NodeHandle("~")
+	{
 			m_NodeHandle.param("base_frame", m_strBaseFrame, std::string("/body"));
 			m_NodeHandle.param("max_range", m_dMaxRange, 5.0);
 			m_NodeHandle.param("n_samples", m_nSamples, 1000);
-			m_NodeHandle.param("tolerance", m_dTolerance, 1.0);
+			m_NodeHandle.param("ransac_tolerance", m_dRansacTolerance, 1.0);
 			m_NodeHandle.param("parse_plane_lower_bound_threshhold", THRESHOLD_LOWER_TO_PARSE_PLANE, 10);
 			m_NodeHandle.param("parse_plane_upper_bound_threshhold", THRESHOLD_UPPER_TO_PARSE_PLANE, 600);
-			m_NodeHandle.param("accept_cylinder_threshhold", THRESHOLD_TO_ACCEPT_CIRCLE_FOUND, 10);
+			m_NodeHandle.param("accept_circle_threshhold", THRESHOLD_TO_ACCEPT_CIRCLE_FOUND, 10);
+			m_NodeHandle.param("discretization_precision", m_dDiscretizationPrecision, 0.025);
+			m_NodeHandle.param("min_num_valid_sections_to_accept_cylinder", MIN_NUM_VALID_SECTIONS_TO_ACCEPT_CYLINDER, 4);
+			m_NodeHandle.param("tolerane_for_plane_concatenation", TOLERANCE_FOR_PLANE_CONCATENATION, 0.01);
 
 			ROS_INFO("Searching for vertical cylinders");
-			ROS_INFO("RANSAC: %d iteration with %f tolerance", m_nSamples, tolerance);
+			ROS_INFO("RANSAC: %d iteration with %f tolerance", m_nSamples, m_dRansacTolerance);
 			assert(m_nSamples > 0);
 
 			// Make sure TF is ready
 			ros::Duration(0.5).sleep();
 
-			m_Subscriber = m_NodeHandle.subscribe("scans", 1, &CylinderDetection::pc_callback, this);
+			m_Subscriber = m_NodeHandle.subscribe("/vrep/depthSensor", 1, &CylinderDetection::pc_callback, this);
 
 			// Initialize the random seed for RANSAC
 			srand(time(NULL));
@@ -391,7 +500,7 @@ public:
 ///////////////////////
 
 int main(int argc, char * argv[]) {
-	ros::init(argc, argv, "CylinderDetection");
+	ros::init(argc, argv, "cylinder_detection");
 	CylinderDetection node;
 	ros::spin();
 	return 0;

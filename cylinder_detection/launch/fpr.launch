@@ -1,0 +1,19 @@
+<launch>
+
+  <node pkg="cylinder_detection" type="cylinder_detection" name="cylinder_detection" output="screen">
+    launch-prefix="xterm -e gdb --args"
+    <param name="base_frame" value="/bubbleRob" />
+    <param name="max_range" value="1.8" />
+    <param name="n_samples" value="300" />
+    <param name="ransac_tolerance" value="0.02" />
+    <param name="parse_plane_lower_bound_threshhold" value="10" />
+    <param name="parse_plane_upper_bound_threshhold" value="300" />
+    <param name="accept_circle_threshhold" value="10" />
+    <param name="discretization_precision" value="0.025" />
+    <param name="min_num_valid_sections_to_accept_cylinder" value="4" />
+    <param name="tolerance_for_plane_concatenation" value="0.01" />
+
+    
+    <remap from="/cylinder_detection/scans" to="/vrep/depthSensor"/>
+  </node>
+</launch>

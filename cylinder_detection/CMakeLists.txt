@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.8.3)
-project(CylinderDetection)
+project(cylinder_detection)
 add_definitions(-O3 -std=c++0x)
 
 ## Find catkin macros and libraries
@@ -87,7 +87,7 @@ include_directories(
 # )
 
 ## Declare a cpp executable
-add_executable(CylinderDetection src/CylinderDetection.cpp)
+add_executable(cylinder_detection src/CylinderDetection.cpp)
 
 ## Add cmake target dependencies of the executable/library
 ## as an example, message headers may need to be generated before nodes
@@ -95,7 +95,7 @@ add_executable(CylinderDetection src/CylinderDetection.cpp)
 
 ## Specify libraries to link a library or executable target against
 target_link_libraries(
-CylinderDetection ${OpenCV_LIBRARIES} ${catkin_LIBRARIES}
+cylinder_detection ${OpenCV_LIBRARIES} ${catkin_LIBRARIES}
 )
 
 #############
@@ -113,7 +113,7 @@ CylinderDetection ${OpenCV_LIBRARIES} ${catkin_LIBRARIES}
 # )
 
 ## Mark executables and/or libraries for installation
-install(TARGETS floor_plane_mapping 
+install(TARGETS cylinder_detection
   ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}

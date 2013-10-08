@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <package>
-  <name>CylinderDetection</name>
+  <name>cylinder_detection</name>
   <version>0.1.0</version>
   <description>The CylinderDetection package</description>
 
