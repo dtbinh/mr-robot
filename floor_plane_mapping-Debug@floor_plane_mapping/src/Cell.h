@@ -19,12 +19,14 @@ public:
 	std::vector<geometry_msgs::PointStamped&> points;
 	Eigen::Vector3f& normalVector;
 	CellState state;
+	double angleThreshold;
 
 	Cell();
 	~Cell();
 
 	// Transform the points
 	void transformPoints(std::string from, std::string to);
+	void updateState();
 private:
 	// Transform a single
 	void transformPoint(geometry_msgs::PointStamped& sourcePoint,

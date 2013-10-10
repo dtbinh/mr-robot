@@ -12,6 +12,20 @@ Cell::~Cell(){
 
 }
 
+void Cell::updateState(){
+	Eigen::Vector3f zVector;
+	double angle;
+	zVector << 0, 0, 1;
+	// Get the angle between the normalVector and the Z axis
+	angle = acos(
+			normalVector.dot(zVector) / (normalVector.norm() * zVector.norm()));
+	// Set the threshold
+	if (fabs(angle) >= angleThreshold)
+		state = Traversable;
+	else
+		state = NonTraversable;
+}
+
 /**
  * Transform the points
  */
@@ -28,7 +42,7 @@ void Cell::transformPoints(std::string from, std::string to){
 /**
  * Transform a single point
  */
-void transformPoint(geometry_msgs::PointStamped& sourcePoint,
+void Cell::transformPoint(geometry_msgs::PointStamped& sourcePoint,
 						   geometry_msgs::PointStamped& targetPoint,
 						   std::string from,
 						   std::string to) {

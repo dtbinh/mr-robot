@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(floor_plane_mapping)
-add_definitions(-O3)
+add_definitions(-O3 -std=c++0x)
 
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
@@ -9,7 +9,7 @@ find_package(catkin REQUIRED COMPONENTS pcl_ros roscpp sensor_msgs tf visualizat
 
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
-
+find_package(OpenCV REQUIRED)
 
 ## Uncomment this if the package has a setup.py. This macro ensures
 ## modules and global scripts declared therein get installed
@@ -83,6 +83,9 @@ include_directories(
 # add_library(floor_plane_mapping
 #   src/${PROJECT_NAME}/floor_plane_mapping.cpp
 # )
+add_library(Cartography
+	src/Cartography.cpp
+)
 
 ## Declare a cpp executable
 add_executable(floor_plane_mapping src/floor_plane_mapping.cpp)
@@ -93,7 +96,11 @@ add_executable(floor_plane_mapping src/floor_plane_mapping.cpp)
 
 ## Specify libraries to link a library or executable target against
 target_link_libraries(floor_plane_mapping
-  ${catkin_LIBRARIES}
+  ${catkin_LIBRARIES}  Cartography 
+)
+
+target_link_libraries(Cartography 
+  ${catkin_LIBRARIES} ${OpenCV_LIBS}
 )
 
 #############
