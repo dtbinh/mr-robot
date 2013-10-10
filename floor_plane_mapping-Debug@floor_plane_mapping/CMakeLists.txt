@@ -5,7 +5,7 @@ add_definitions(-O3 -std=c++0x)
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
-find_package(catkin REQUIRED COMPONENTS pcl_ros roscpp sensor_msgs tf visualization_msgs message_generation)
+find_package(catkin REQUIRED COMPONENTS cv_bridge image_transport pcl_ros roscpp sensor_msgs tf visualization_msgs message_generation)
 
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
@@ -52,7 +52,7 @@ find_package(OpenCV REQUIRED)
 catkin_package(
 #  INCLUDE_DIRS include
 #  LIBRARIES floor_plane_mapping
-  CATKIN_DEPENDS pcl_ros roscpp sensor_msgs tf visualization_msgs
+  CATKIN_DEPENDS pcl_ros roscpp sensor_msgs tf visualization_msgs cv_bridge
   message_runtime
 #  DEPENDS system_lib
 )
@@ -84,7 +84,11 @@ include_directories(
 #   src/${PROJECT_NAME}/floor_plane_mapping.cpp
 # )
 add_library(Cartography
-	src/Cartography.cpp
+ 	src/Cartography.cpp
+)
+
+add_library(Cell
+	src/Cell.cpp
 )
 
 ## Declare a cpp executable
@@ -96,11 +100,15 @@ add_executable(floor_plane_mapping src/floor_plane_mapping.cpp)
 
 ## Specify libraries to link a library or executable target against
 target_link_libraries(floor_plane_mapping
-  ${catkin_LIBRARIES}  Cartography 
+  ${catkin_LIBRARIES} Cell Cartography
+)
+
+target_link_libraries(Cell 
+  ${catkin_LIBRARIES}
 )
 
 target_link_libraries(Cartography 
-  ${catkin_LIBRARIES} ${OpenCV_LIBS}
+  ${catkin_LIBRARIES} ${OpenCV_LIBS} 
 )
 
 #############

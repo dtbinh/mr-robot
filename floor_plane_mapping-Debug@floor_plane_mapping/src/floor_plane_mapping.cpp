@@ -4,6 +4,7 @@
 #include <pcl_ros/point_cloud.h>
 #include <pcl_ros/transforms.h>
 #include <pcl/point_types.h>
+#include <pcl/features/normal_3d.h>
 #include <tf/tf.h>
 #include <tf/transform_listener.h>
 #include <boost/bind.hpp>
@@ -19,7 +20,6 @@
 class FloorPlaneMapping {
 protected:
 	ros::Subscriber scan_sub_;
-	ros::Publisher marker_pub_;
 	tf::TransformListener listener_;
 
 	ros::NodeHandle nh_;
@@ -28,20 +28,23 @@ protected:
 
 	double max_range_;
 	double tolerance;
-	double traverse_threshold;
-	int n_samples;
+	double traverse_threshold; // Angle threshold to determine if traversable
+	double normal_estimation_radius; // Normal estimation radius in meters
 
 	pcl::PointCloud<pcl::PointXYZ> lastpc_;
 
-	// Mapping
 	Cell* pCell;
 	Cartography *pCartography;
-
 protected:
 	// ROS Callbacks
 
-	void pc_callback(const sensor_msgs::PointCloud2ConstPtr msg) {
+	void pc_Callback(const sensor_msgs::PointCloud2ConstPtr msg){
+		/**
+		 * Transformation of the point clouds
+		 */
 		pcl::PointCloud<pcl::PointXYZ> temp;
+		pcl::PointCloud<pcl::PointXYZ>::Ptr cloudPtr(new pcl::PointCloud<pcl::PointXYZ>);
+
 		pcl::fromROSMsg(*msg, temp);
 		// Make sure the point cloud is in the base-frame
 		listener_.waitForTransform(base_frame_, msg->header.frame_id,
@@ -49,7 +52,32 @@ protected:
 		pcl_ros::transformPointCloud(base_frame_, msg->header.stamp, temp,
 				msg->header.frame_id, lastpc_, listener_);
 
-		//
+		// cloudPtr -> point cloud in the world frame
+		listener_.waitForTransform(world_frame_, msg->header.frame_id,
+				msg->header.stamp, ros::Duration(1.0));
+		pcl_ros::transformPointCloud(world_frame_, msg->header.stamp, temp,
+				msg->header.frame_id, *cloudPtr, listener_);
+
+		/*
+		 * Normal estimation for the point cloud
+		 */
+		pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> normalEstimation;
+		normalEstimation.setInputCloud(cloudPtr);
+
+		// KD Tree search method
+		pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ> ());
+		normalEstimation.setSearchMethod(tree);
+
+		// Output datasets
+		pcl::PointCloud<pcl::Normal>::Ptr cloudNormalsPtr(new pcl::PointCloud<pcl::Normal>);
+		// Use all neighbors in a sphere of radius of "normal_estimation_radis" in meters
+		normalEstimation.setRadiusSearch(normal_estimation_radius);
+		// Compute the features
+		normalEstimation.compute(*cloudNormalsPtr);
+
+		/**
+		 * Filter the points in the point cloud
+		 */
 		unsigned int n = temp.size();
 		std::vector<size_t> pidx;
 		// First count the useful points
@@ -71,118 +99,25 @@ protected:
 			pidx.push_back(i);
 		}
 
-		//
-		// BEGIN TODO
-		// Finding planes: z = a*x + b*y + c
-		// Remember to use the n_samples, tolerance
-		n = pidx.size();
-		size_t best = 0;
-		double X[3] = { 0, 0, 0 };
-		// Set the timer
-		struct timeval start, end;
-		gettimeofday(&start, NULL);
-		//
-		ROS_INFO("%d useful points out of %d", (int)n, (int)temp.size());
-
-
-		// Set up a cell
-		pCell = new Cell();
-		std::vector<geometry_msgs::PointStamped> cellPoints;
-		Eigen::Vector3f normalVector;
-
-		// Let's ransack!
-		for (unsigned int i = 0; i < (unsigned) n_samples; i++) {
-			if (n == 0) {
-				break;
-			}
-			Eigen::Vector3f samplePoints[3];
-			// Initialize the random seed
-			// srand(time(NULL));
-			// Pick up 3 random points
-			for (int j = 0; j < 3; j++) {
-				int index = getRandomIndex((int) n);
-				samplePoints[j] << lastpc_[pidx[index]].x, lastpc_[pidx[index]].y, lastpc_[pidx[index]].z;
-			}
-			// Calculate the plane ax+by+cz+d=0
-			Eigen::Vector3f p = samplePoints[1] - samplePoints[0];
-			Eigen::Vector3f q = samplePoints[2] - samplePoints[1];
-			normalVector = p.cross(q);
-			normalVector.normalize(); // Normalize the vector
-			double d = -samplePoints[1].dot(normalVector);
-
-			// Evaluation
-			size_t score = 0;
-			for (int i = 0; i < n; i++) {
-				// Calculate the score for this model
-				if (calcDistance(lastpc_[pidx[i]], normalVector, d)
-						<= tolerance) {
-					// Store the points to the cell
-					cellPoints.push_back(CloudPointToPointStamped(lastpc_[pidx[i]]));
-					score++;
-				}
-				// Update if a better model is found
-				if (score > best) {
-					best = score;
-					X[0] = normalVector[0] / -normalVector[2];
-					X[1] = normalVector[1] / -normalVector[2];
-					X[2] = d / -normalVector[2];
-				}
-			}
+		/*
+		 * Update and mapping
+		 */
+		int pidx_size = pidx.size();
+		for(int i = 0; i<pidx_size; i++){
+			pCell->x = cloudPtr->points[pidx[i]].x;
+			pCell->y = cloudPtr->points[pidx[i]].y;
+			pCell->normalVector <<
+					cloudNormalsPtr->points[pidx[i]].normal_x,
+					cloudNormalsPtr->points[pidx[i]].normal_y,
+					fabs(cloudNormalsPtr->points[pidx[i]].normal_z);
+			// Update cell state
+			pCell->updateState();
+			// Mapping
+			pCartography->Update(pCell->x,pCell->y,pCell->state);
 		}
-
-		pCell->normalVector = normalVector;
-		pCell->points = cellPoints;
-		updateMapping(*pCell);
-		// At the end, make sure to store the best plane estimate in X
-		// X = {a,b,c}. This will be used for display
-		gettimeofday(&end, NULL); // Stop the timer
-		ROS_INFO("Time elapsed %ld ms", getElapsedTime(start,end));
-		ROS_INFO("Score %d", (int)best);
-		// END OF TODO
-
-/*		ROS_INFO(
-
-				"Extracted floor plane: z = %.2fx + %.2fy + %.2f", X[0], X[1], X[2]);*/
-		Eigen::Vector3f O, u, v, w;
-		w << X[0], X[1], -1.0;
-		w /= w.norm();
-		O << 1.0, 0.0, 1.0 * X[0] + 0.0 * X[1] + X[2];
-		u << 2.0, 0.0, 2.0 * X[0] + 0.0 * X[1] + X[2];
-		u -= O;
-		u /= u.norm();
-		v = w.cross(u);
-
-		tf::Matrix3x3 R(u(0), v(0), w(0), u(1), v(1), w(1), u(2), v(2), w(2));
-		tf::Quaternion Q;
-		R.getRotation(Q);
-
-		visualization_msgs::Marker m;
-		m.header.stamp = msg->header.stamp;
-		m.header.frame_id = base_frame_;
-		m.ns = "floor_plane";
-		m.id = 1;
-		m.type = visualization_msgs::Marker::CYLINDER;
-		m.action = visualization_msgs::Marker::ADD;
-		m.pose.position.x = O(0);
-		m.pose.position.y = O(1);
-		m.pose.position.z = O(2);
-		tf::quaternionTFToMsg(Q, m.pose.orientation);
-		m.scale.x = 1.0;
-		m.scale.y = 1.0;
-		m.scale.z = 0.01;
-		m.color.a = 0.5;
-		m.color.r = 1.0;
-		m.color.g = 0.0;
-		m.color.b = 1.0;
-
-		marker_pub_.publish(m);
-
-/*
-		geometry_msgs::PointStamped p;
-		p.point.x = O[0];
-		p.point.y = O[1];
-		currentCell(p);
-*/
+		// TODO
+		// BUG L84 Cartography.cpp
+		pCartography->PublishImage();
 	}
 
 public:
@@ -191,46 +126,29 @@ public:
 		nh_.param("base_frame", base_frame_, std::string("/body"));
 		nh_.param("world_frame", world_frame_, std::string("/world"));
 		nh_.param("max_range", max_range_, 5.0);
-		nh_.param("n_samples", n_samples, 1000);
-		nh_.param("tolerance", tolerance, 1.0);
+		nh_.param("normal_estimation_radius",normal_estimation_radius,0.03);
 		nh_.param("traverse_threshold",traverse_threshold, 1.2);
 
-		ROS_INFO("Searching for Plane parameter z = a x + b y + c");
-		ROS_INFO(
-				"RANSAC: %d iteration with %f tolerance", n_samples, tolerance);
-		assert(n_samples > 0);
+		ROS_INFO("Mapping");
 
 		// Make sure TF is ready
 		ros::Duration(0.5).sleep();
 
-		scan_sub_ = nh_.subscribe("scans", 1, &FloorPlaneMapping::pc_callback,
+		scan_sub_ = nh_.subscribe("scans", 1, &FloorPlaneMapping::pc_Callback,
 				this);
-		marker_pub_ = nh_.advertise<visualization_msgs::Marker>("floor_plane",
-				1);
 
 		pCartography = new Cartography(nh_, 1.0, 10);
+		pCell = new Cell();
+		pCell->thetaThreshold = traverse_threshold;
 	}
 
 	~FloorPlaneMapping(){
+		delete pCell;
 		delete pCartography;
 	}
 
 	ros::NodeHandle getNodeHanlder(){
 		return nh_;
-	}
-
-	// Get a random index for the cloud point
-	size_t getRandomIndex(unsigned long i) {
-		size_t j = std::min((rand() / (double) RAND_MAX) * i, (double) i - 1);
-		return j;
-	}
-
-	// Calculate the distance between the point and the plane
-	double calcDistance(pcl::PointXYZ& point, Eigen::Vector3f& normalVector,
-			double d) {
-		Eigen::Vector3f t;
-		t << point.x, point.y, point.z;
-		return fabs(t.dot(normalVector) + d);
 	}
 
 	// Get the elapsed time from start to end
@@ -242,27 +160,6 @@ public:
 		return mtime;
 	}
 
-	// Convert the cloud point to the point stamped
-	geometry_msgs::PointStamped CloudPointToPointStamped(pcl::PointXYZ& point){
-		geometry_msgs::PointStamped pointStamped;
-		pointStamped.point.x = point.x;
-		pointStamped.point.y = point.y;
-		return pointStamped;
-	}
-
-	// Update the mapping
-	void updateMapping(Cell& cell) {
-		// Update the cell's state and transform the points
-		cell.updateState();
-		cell.transformPoints(base_frame_,world_frame_);
-		std::vector<geometry_msgs::PointStamped>::iterator pointsIterator;
-		// Update the Cartography
-		for (pointsIterator = cell.points.begin();
-				pointsIterator != cell.points.end(); pointsIterator++) {
-			pCartography->Update(pointsIterator->point.x, pointsIterator->point.y,
-					cell.state);
-		}
-	}
 };
 
 int main(int argc, char * argv[]) {

@@ -29,11 +29,11 @@ struct BlockMatrixData
 
 Cartography::Cartography(ros::NodeHandle &n, double dCellSize, unsigned int uiCellSize):
 	m_ImageTransport(n), m_dCellSize(dCellSize), m_uiCellSize(uiCellSize),
-	m_MinCellRow(INT_MAX), m_MaxCellRow(INT_MIN), m_MinCellColumn(INT_MAX), m_MaxCellColumn(INT_MIN),
-	m_pFinalMatrix(nullptr), m_OldMaxCellRow(0),
-	m_OldMinCellRow(0),
-	m_OldMaxCellColumn(0),
-	m_OldMinCellColumn(0)
+	m_MinCellRow(INT_MAX), m_MaxCellRow(INT_MIN),
+	m_MinCellColumn(INT_MAX), m_MaxCellColumn(INT_MIN),
+	m_pFinalMatrix(nullptr),
+	m_OldMaxCellRow(0), m_OldMinCellRow(0),
+	m_OldMaxCellColumn(0), m_OldMinCellColumn(0)
 {
 	m_ImagePublisher = m_ImageTransport.advertise("image",1);
 }
@@ -52,7 +52,7 @@ void Cartography::PublishImage()
 	int numRows = (m_MaxCellRow-m_MinCellRow+1)*m_uiCellSize;
 	int numColumns = (m_MaxCellColumn-m_MinCellColumn+1)*m_uiCellSize;
 
-	if(m_pFinalMatrix && ((m_MinCellColumn != m_OldMinCellColumn) || (m_MaxCellRow != m_OldMaxCellRow) || (m_MinCellRow != m_OldMinCellRow) || (m_MaxCellColumn != m_OldMaxCellColumn)))
+	if(((m_MinCellColumn != m_OldMinCellColumn) || (m_MaxCellRow != m_OldMaxCellRow) || (m_MinCellRow != m_OldMinCellRow) || (m_MaxCellColumn != m_OldMaxCellColumn)))
 	{
 		m_OldMaxCellRow = m_MaxCellRow;
 		m_OldMinCellColumn = m_MinCellColumn;
@@ -68,7 +68,6 @@ void Cartography::PublishImage()
 		}
 	}
 	
-	ROS_INFO("FinalMatrix size %d %d", (m_MaxCellRow-m_MinCellRow+1)*m_uiCellSize, (m_MaxCellColumn-m_MinCellColumn+1)*m_uiCellSize);
 	// Copy the data from m_CellMap
 	// Note that the image has the Y axis inverted so we invert the rows in the final matrix
 	// to restore the correct orientation
@@ -79,49 +78,43 @@ void Cartography::PublishImage()
 			for(int j = 0; j < m_uiCellSize; j++)
 			{
 				int m = int(it->second->m-m_MinCellRow)*m_uiCellSize+i;
-				m = numRows-1-m;
 				int n = int(it->second->n-m_MinCellColumn)*m_uiCellSize+j;
-				m_pFinalMatrix->at<int>(m, n) = int(it->second->pMatrix->at<int>(i, j)) & int(m_pFinalMatrix->at<int>(m, n));
+				it->second->pMatrix->at<int>(i, j);
+				m_pFinalMatrix->at<int>(m, n) = int(m_pFinalMatrix->at<int>(m, n)) & int(it->second->pMatrix->at<int>(i, j));
 			}
 		}
 	}
 
+	auto imageMatrix = cv::Mat(numRows,numColumns,CV_32S);
 	// Prepare the colors before publishing the cvMat as an image
 	for(int i = 0; i < numRows; i++)
 	{
 		for(int j = 0; j < numColumns; j++)
 		{
-			switch(m_pFinalMatrix->at<int>(i, j))
+			switch(int(m_pFinalMatrix->at<int>(i, j)))
 			{
+
 			case NonTraversable:
-				m_pFinalMatrix->at<int>(i, j) = 255;	// Red
+				imageMatrix.at<int>(i, j) = 255;	// Red
 				break;
 			case Traversable:
-				m_pFinalMatrix->at<int>(i, j) = 255 << 16;	// Blue
+				imageMatrix.at<int>(i, j) = 255 << 16;	// Blue
 				break;
 			case Unknown:
-				m_pFinalMatrix->at<int>(i, j) = 0xFFFFFFFF;	// White
+				imageMatrix.at<int>(i, j) = 0xFFFFFFFF;	// White
 				break;
 			}
 		}
 	}
 
-	/*
-	for(int i = 0; i < numRows; i++)
-	{
-	for(int j = 0; j < numColumns; j++)
-	ROS_INFO("%d", m_pFinalMatrix->at<int>(i, j));
-	}
-	*/
 
 	cv_bridge::CvImage out_msg;
 	out_msg.encoding = "rgba8";
-	out_msg.image    = *m_pFinalMatrix;
+	out_msg.image    = imageMatrix;
 
 	ros::Rate loop_rate(5);
 	while (ros::ok())
 	{
-		ROS_INFO("Publishing image");
 		m_ImagePublisher.publish(out_msg.toImageMsg());
 		ros::spinOnce();
 		loop_rate.sleep();
@@ -185,7 +178,7 @@ void Cartography::Update(double x, double y, double data)
 	// Convert to cvMat row and column
 	int m = int(_01x*m_uiCellSize);
 	int n = int(_01y*m_uiCellSize);
-	pData->pMatrix->at<int>(int(_01x*m_uiCellSize), int(_01y*m_uiCellSize)) = (int)data & int(pData->pMatrix->at<int>(m, n));
+	pData->pMatrix->at<int>(m, n) = (int)data & int(pData->pMatrix->at<int>(m, n));
 }
 
 int main(int argc, char** argv)
