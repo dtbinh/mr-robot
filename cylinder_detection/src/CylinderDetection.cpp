@@ -23,6 +23,7 @@ static int THRESHOLD_UPPER_TO_PARSE_PLANE = 600;
 static int THRESHOLD_TO_ACCEPT_CIRCLE_FOUND = 10;
 static int MIN_NUM_VALID_SECTIONS_TO_ACCEPT_CYLINDER = 4;
 static double TOLERANCE_FOR_PLANE_CONCATENATION = 0.01;
+static double MAXIMUM_RADIUS = 1.0;
 
 //==================//
 // Helper functions //
@@ -57,7 +58,7 @@ static double GetDistanceToPlane(const pcl::PointXYZ& point, const Eigen::Vector
 
 static __forceinline bool IsInCircle(const pcl::PointXYZ& center, const double &dRadius, const pcl::PointXYZ &ptToTest, double dTolerance)
 {
-	return ( fabs(sqrt( (ptToTest.x-center.x)*(ptToTest.x-center.x) + (ptToTest.y-center.y)*(ptToTest.y-center.y) + (ptToTest.z-center.z)*(ptToTest.z-center.z) ) - dRadius) < dTolerance);
+	return ( fabs(sqrt( (ptToTest.x-center.x)*(ptToTest.x-center.x) + (ptToTest.y-center.y)*(ptToTest.y-center.y) ) - dRadius) < dTolerance);
 }
 
 // Output : center and dRadius
@@ -286,12 +287,11 @@ protected:
 				GetCenterRadiusFrom3Points2D(centerForCurrentIteration, radiusForCurrentIteration, samplePoints[0], samplePoints[1], samplePoints[2]);
 
 #ifdef _VERBOSE
-				/*
-			ROS_INFO("Circle from A(%.5f, %.5f, %.5f) B(%.5f, %.5f, %.5f) C(%.5f, %.5f, %.5f) - Center (%.2f, %.2f, %.2f) Radius %.2f", samplePoints[0].x, samplePoints[0].y, samplePoints[0].z,
+			/*ROS_INFO("Circle from A(%.5f, %.5f, %.5f) B(%.5f, %.5f, %.5f) C(%.5f, %.5f, %.5f) - Center (%.2f, %.2f, %.2f) Radius %.2f", samplePoints[0].x, samplePoints[0].y, samplePoints[0].z,
 					samplePoints[1].x, samplePoints[1].y, samplePoints[1].z,
 					samplePoints[2].x, samplePoints[2].y, samplePoints[2].z,
 					centerForCurrentIteration.x, centerForCurrentIteration.y, centerForCurrentIteration.z, radiusForCurrentIteration );
-				 */
+					*/
 #endif
 
 
@@ -320,6 +320,9 @@ protected:
 			// ^___^
 
 			if (best < THRESHOLD_TO_ACCEPT_CIRCLE_FOUND)
+				continue;
+
+			if(radius > MAXIMUM_RADIUS)
 				continue;
 
 #ifdef _DO_LINEAR_REGRESSION
@@ -476,6 +479,7 @@ public:
 			m_NodeHandle.param("discretization_precision", m_dDiscretizationPrecision, 0.025);
 			m_NodeHandle.param("min_num_valid_sections_to_accept_cylinder", MIN_NUM_VALID_SECTIONS_TO_ACCEPT_CYLINDER, 4);
 			m_NodeHandle.param("tolerane_for_plane_concatenation", TOLERANCE_FOR_PLANE_CONCATENATION, 0.01);
+			m_NodeHandle.param("maximum_radius", MAXIMUM_RADIUS, 1.0);
 
 			ROS_INFO("Searching for vertical cylinders");
 			ROS_INFO("RANSAC: %d iteration with %f tolerance", m_nSamples, m_dRansacTolerance);
