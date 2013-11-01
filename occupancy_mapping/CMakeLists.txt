@@ -87,6 +87,10 @@ add_library(Cartography
  	src/Cartography.cpp
 )
 
+add_library(DME
+ 	src/DME.cpp
+)
+
 add_library(Cell
 	src/Cell.cpp
 )
@@ -100,7 +104,7 @@ add_executable(occupancy_mapping src/occupancy_mapping.cpp)
 
 ## Specify libraries to link a library or executable target against
 target_link_libraries(occupancy_mapping
-  ${catkin_LIBRARIES} Cell Cartography
+  ${catkin_LIBRARIES} Cell Cartography DME
 )
 
 target_link_libraries(Cell 
@@ -108,6 +112,10 @@ target_link_libraries(Cell
 )
 
 target_link_libraries(Cartography 
+  ${catkin_LIBRARIES} ${OpenCV_LIBS} 
+)
+
+target_link_libraries(DME
   ${catkin_LIBRARIES} ${OpenCV_LIBS} 
 )
 

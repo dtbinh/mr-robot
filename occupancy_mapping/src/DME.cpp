@@ -4,14 +4,15 @@
 // Bijections de N^n dans N
 // http://wiki.ros.org/catkin/CMakeLists.txt
 
-#include "Cartography.h"
+#include "DME.h"
 #include "Cell.h"
-#include <float.h>
+#include <limits.h>
 #include <math.h>
 
-// We cap the maximum/minimum value for log odd
-#define MAX_LOG_ODD	log(FLT_MAX/2)
-#define MIN_LOG_ODD	-log(FLT_MAX/2)
+// We cap the maximum number of measures to update recursively their mean
+#define MAX_NUM_MEASURES	INT_MAX/2
+// Parameter of the covariance function (squared exp. kernel)
+#define TAU	20.0
 
 using namespace std;
 
@@ -20,18 +21,26 @@ struct BlockMatrixData
 	//! Coordinates (m,n) of the block matrix in m_pFinalMatrix
 	int m;
 	int n;
-	cv::Mat *pMatrix;
+	// Stores the mean and the variance of the height, which follows a normal distribution
+	cv::Mat *pHeightMatrix;
+	cv::Mat *pVarianceMatrix;
+	// Stores the number of measurements for a given cell
+	cv::Mat *pNumMeasurementsMatrix;
 
-	BlockMatrixData() : pMatrix(nullptr)	{}
+	BlockMatrixData() : pHeightMatrix(nullptr), pVarianceMatrix(nullptr), pNumMeasurementsMatrix(nullptr)	{}
 
 	~BlockMatrixData()
 	{
-		if(pMatrix)
-			delete pMatrix;
+		if(pHeightMatrix)
+			delete pHeightMatrix;
+		if(pVarianceMatrix)
+			delete pVarianceMatrix;
+		if(pNumMeasurementsMatrix)
+			delete pNumMeasurementsMatrix;
 	}
 };
 
-Cartography::Cartography(ros::NodeHandle &n, double dCellSize, unsigned int uiCellSize):
+DME::DME(ros::NodeHandle &n, double dCellSize, unsigned int uiCellSize):
 	m_ImageTransport(n), m_dCellSize(dCellSize), m_uiCellSize(uiCellSize),
 	m_MinCellRow(INT_MAX), m_MaxCellRow(INT_MIN),
 	m_MinCellColumn(INT_MAX), m_MaxCellColumn(INT_MIN),
@@ -42,14 +51,16 @@ Cartography::Cartography(ros::NodeHandle &n, double dCellSize, unsigned int uiCe
 	m_ImagePublisher = m_ImageTransport.advertise("image",1);
 }
 
-Cartography::~Cartography()
+DME::~DME()
 {
 	for(auto it = m_CellMap.begin(); it != m_CellMap.end(); it++)
 		delete(it->second);
 }
 
-void Cartography::PublishImage()
+void DME::PublishImage()
 {
+	// TODO
+#if 0
 	if(m_MinCellRow == INT_MAX || m_MaxCellRow == INT_MIN || m_MinCellColumn == INT_MAX || m_MaxCellColumn == INT_MIN)
 		return;
 
@@ -108,28 +119,24 @@ void Cartography::PublishImage()
 	out_msg.encoding = "mono8";
 	out_msg.image    = imageMatrix;
 
-	// O.O This is really weird we did an infinite loop for Project 1, and it... worked ?
-	/*
-	ros::Rate loop_rate(5);
-	while (ros::ok())
-	{
-		m_ImagePublisher.publish(out_msg.toImageMsg());
-		ros::spinOnce();
-		loop_rate.sleep();
-	}
-	*/
 	m_ImagePublisher.publish(out_msg.toImageMsg());
+#endif
 }
 
-static void CapRange(float &value)
+// Squared exponential kernel function
+static float Covariance(float u, float v)
 {
-	if(value >= MAX_LOG_ODD)
-		value = MAX_LOG_ODD;
-	if(value =< MIN_LOG_ODD)
-		value = MIN_LOG_ODD;
+	return exp(-(u-v)*(u-v)/(2*TAU*TAU));
 }
 
-void Cartography::Update(double x, double y, double data)
+static float Mean(float newValue, float previousMean, int numMeasurements)
+{
+	if(numMeasurements>=MAX_NUM_MEASURES)
+		return previousMean+newValue/numMeasurements;
+	return (float(numMeasurements)/(numMeasurements+1))*previousMean+newValue/(numMeasurements+1);
+}
+
+void DME::Update(double x, double y, double data)
 {
 	int i, j;
 	i = ceil(double(x)/m_dCellSize);
@@ -160,12 +167,18 @@ void Cartography::Update(double x, double y, double data)
 		pData = new BlockMatrixData;
 		pData->m = i;
 		pData->n = j;
-		pData->pMatrix = new cv::Mat(m_uiCellSize,m_uiCellSize,CV_32F);
+		pData->pHeightMatrix = new cv::Mat(m_uiCellSize,m_uiCellSize,CV_32F);
+		pData->pVarianceMatrix = new cv::Mat(m_uiCellSize,m_uiCellSize,CV_32F);
+		pData->pNumMeasurementsMatrix = new cv::Mat(m_uiCellSize,m_uiCellSize,CV_32S);
 
 		for(int i = 0; i < m_uiCellSize; i++)
 		{
 			for(int j = 0; j < m_uiCellSize; j++)
-				pData->pMatrix->at<float>(i,j)=0.0f;
+			{
+				pData->pHeightMatrix->at<float>(i,j)=FLT_MIN;
+				pData->pVarianceMatrix->at<float>(i,j)=0.0f;
+				pData->pNumMeasurementsMatrix->at<int>(i,j)=0;
+			}
 		}
 		m_CellMap[idx] = pData;
 	}
@@ -179,7 +192,17 @@ void Cartography::Update(double x, double y, double data)
 	// Convert to cvMat row and column
 	int m = int(_01x*m_uiCellSize);
 	int n = int(_01y*m_uiCellSize);
-	float &fLogOdd = pData->pMatrix->at<float>(m, n);
-	fLogOdd = float(data) + fLogOdd;
-	CapRange(fLogOdd);
+	// Previous height stored before measuring data
+	float &fHeight = pData->pHeightMatrix->at<float>(m, n);
+
+	float fCorrelationCoefficient = Covariance(data,fHeight);
+	int &numMeasurements = pData->pNumMeasurementsMatrix->at<int>(m,n);
+
+	// Now perform the real update of the DME
+	if(fHeight==FLT_MIN)
+		fHeight = data;
+	else
+		fHeight = Mean(data,fHeight,numMeasurements)+fCorrelationCoefficient*(data-fHeight);
+	pData->pVarianceMatrix->at<float>(m,n) = 1-fCorrelationCoefficient*fCorrelationCoefficient;
+	numMeasurements = std::min(numMeasurements+1,MAX_NUM_MEASURES);
 }
