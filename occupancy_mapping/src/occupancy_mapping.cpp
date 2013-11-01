@@ -27,6 +27,7 @@ protected:
 	std::string base_frame_;
 	std::string world_frame_;
 
+        int n_samples;
 	double max_range_;
 	double tolerance;
 	double traverse_threshold; // Angle threshold to determine if traversable
@@ -62,23 +63,6 @@ protected:
 		pcl_ros::transformPointCloud(world_frame_, msg->header.stamp, temp,
 				msg->header.frame_id, *cloudPtr, listener_);
 
-		/*
-		 * Normal estimation for the point cloud
-		 */
-		pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> normalEstimation;
-		normalEstimation.setInputCloud(cloudPtr);
-
-		// KD Tree search method
-		pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ> ());
-		normalEstimation.setSearchMethod(tree);
-
-		// Output datasets
-		pcl::PointCloud<pcl::Normal>::Ptr cloudNormalsPtr(new pcl::PointCloud<pcl::Normal>);
-		// Use all neighbors in a sphere of radius of "normal_estimation_radis" in meters
-		normalEstimation.setRadiusSearch(normal_estimation_radius);
-		// Compute the features
-		normalEstimation.compute(*cloudNormalsPtr);
-
 		/**
 		 * Filter the points in the point cloud
 		 */
@@ -102,19 +86,67 @@ protected:
 			}
 			pidx.push_back(i);
 		}
+		
+
+		/*
+		 * RANSAC
+		 */		
+		n = pidx.size();
+		size_t best = 0;
+		double X[3] = { 0, 0, 0 };
+
+		Eigen::Vector3f normalVector;
+		std::vector<size_t> planePointsIndex;
+		ROS_INFO("%d useful points out of %d", (int)n, (int)temp.size());
+		for (unsigned int i = 0; i < (unsigned) n_samples; i++) {
+			if (n == 0) {
+				break;
+			}
+			Eigen::Vector3f samplePoints[3];
+			// Initialize the random seed
+			// srand(time(NULL));
+			// Pick up 3 random points
+			for (int j = 0; j < 3; j++) {
+				int index = getRandomIndex((int) n);
+				samplePoints[j] << lastpc_[pidx[index]].x, lastpc_[pidx[index]].y, lastpc_[pidx[index]].z;
+			}
+			// Calculate the plane ax+by+cz+d=0
+			Eigen::Vector3f p = samplePoints[1] - samplePoints[0];
+			Eigen::Vector3f q = samplePoints[2] - samplePoints[1];
+			normalVector = p.cross(q);
+			normalVector.normalize(); // Normalize the vector
+			double d = -samplePoints[1].dot(normalVector);
+
+			// Evaluation
+			size_t score = 0;
+			std::vector<size_t> tempPlanePointsIndex;
+			for (int i = 0; i < n; i++) {
+				// Calculate the score for this model
+				if (calcDistance(lastpc_[pidx[i]], normalVector, d)
+						<= tolerance) {
+				  tempPlanePointsIndex.push_back(i);
+					score++;
+				}
+				// Update if a better model is found
+				if (score > best) {
+					best = score;
+					X[0] = normalVector[0] / -normalVector[2];
+					X[1] = normalVector[1] / -normalVector[2];
+					X[2] = d / -normalVector[2];
+					planePointsIndex = tempPlanePointsIndex;
+				}
+			}
+		}
+
 
 		/*
 		 * Update and mapping
 		 */
-		int pidx_size = pidx.size();
-		for(int i = 0; i<pidx_size; i++)
-		{
-			pCell->x = cloudPtr->points[pidx[i]].x;
-			pCell->y = cloudPtr->points[pidx[i]].y;
-			pCell->normalVector <<
-					cloudNormalsPtr->points[pidx[i]].normal_x,
-					cloudNormalsPtr->points[pidx[i]].normal_y,
-					fabs(cloudNormalsPtr->points[pidx[i]].normal_z);
+		int pidx_size = planePointsIndex.size();
+		for(int i = 0; i<pidx_size; i++){
+			pCell->x = cloudPtr->points[planePointsIndex[i]].x;
+			pCell->y = cloudPtr->points[planePointsIndex[i]].y;
+			pCell->normalVector << normalVector[0],normalVector[1],fabs(normalVector[2]);
 			// Update cell state
 			pCell->updateState();
 			// Mapping
@@ -145,8 +177,11 @@ public:
 		nh_.param("normal_estimation_radius",normal_estimation_radius,0.03);
 		nh_.param("traverse_threshold",traverse_threshold, 1.2);
 		nh_.param("step_function_parameter",step_function_parameter, 2.0);
+		nh_.param("n_samples", n_samples, 1000);
+		nh_.param("tolerance", tolerance, 1.0);
 
 		ROS_INFO("Mapping");
+		assert(n_samples > 0);
 
 		// Make sure TF is ready
 		ros::Duration(0.5).sleep();
