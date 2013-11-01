@@ -15,6 +15,7 @@
 #include <sys/time.h>
 #include "Cartography.h"
 #include "Cell.h"
+#include "DME.h"
 
 
 class FloorPlaneMapping {
@@ -36,6 +37,8 @@ protected:
 
 	Cell* pCell;
 	Cartography *pCartography;
+	DME *m_pDME;
+
 protected:
 	// ROS Callbacks
 
@@ -104,7 +107,8 @@ protected:
 		 * Update and mapping
 		 */
 		int pidx_size = pidx.size();
-		for(int i = 0; i<pidx_size; i++){
+		for(int i = 0; i<pidx_size; i++)
+		{
 			pCell->x = cloudPtr->points[pidx[i]].x;
 			pCell->y = cloudPtr->points[pidx[i]].y;
 			pCell->normalVector <<
@@ -127,6 +131,7 @@ protected:
 			// Step function such that f(0+)=1 and f(+infinite)->0+, f(0-)=-1 and f(-infinite)->0-
 			// This needs to be tweaked. Function chosen is f(x)=tanh(param/x^2)
 			pCartography->Update(pCell->x,pCell->y,logOdd*tanh(step_function_parameter/(distanceToRobot*distanceToRobot)));
+			m_pDME->Update(pCell->x,pCell->y, cloudPtr->points[pidx[i]].z);
 		}
 		pCartography->PublishImage();
 	}
@@ -150,6 +155,7 @@ public:
 				this);
 
 		pCartography = new Cartography(nh_, 1.0, 10);
+		m_pDME = new DME(nh_, 1.0, 10);
 		pCell = new Cell();
 		pCell->thetaThreshold = traverse_threshold;
 	}
