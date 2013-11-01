@@ -93,7 +93,8 @@ protected:
 		double X[3] = { 0, 0, 0 };
 
 		Eigen::Vector3f normalVector;
-		std::vector<size_t> planePointsIndex;
+		std::vector<size_t> inliersIndex; // index for inliers of the plane
+		std::vector<size_t> outliersIndex; // index for outliers
 		ROS_INFO("%d useful points out of %d", (int)n, (int)temp.size());
 		for (unsigned int i = 0; i < (unsigned) n_samples; i++) {
 			if (n == 0) {
@@ -116,13 +117,17 @@ protected:
 
 			// Evaluation
 			size_t score = 0;
-			std::vector<size_t> tempPlanePointsIndex;
+			std::vector<size_t> tempInliersIndex;
+			std::vector<size_t> tempOutliersIndex;
 			for (int i = 0; i < n; i++) {
 				// Calculate the score for this model
 				if (calcDistance(lastpc_[pidx[i]], normalVector, d)
 						<= tolerance) {
-				  tempPlanePointsIndex.push_back(i);
+				        tempInliersIndex.push_back(i);
 					score++;
+				}else
+				{
+				    tempOutliersIndex.push_back(i);
 				}
 				// Update if a better model is found
 				if (score > best) {
@@ -130,7 +135,8 @@ protected:
 					X[0] = normalVector[0] / -normalVector[2];
 					X[1] = normalVector[1] / -normalVector[2];
 					X[2] = d / -normalVector[2];
-					planePointsIndex = tempPlanePointsIndex;
+					inliersIndex = tempInliersIndex;
+					outliersIndex = tempOutliersIndex;
 				}
 			}
 		}
@@ -139,10 +145,20 @@ protected:
 		/*
 		 * Update and mapping
 		 */
-		int pidx_size = planePointsIndex.size();
+
+		// Update the outliers
+		int pidx_size = outliersIndex.size();
 		for(int i = 0; i<pidx_size; i++){
-			pCell->x = cloudPtr->points[planePointsIndex[i]].x;
-			pCell->y = cloudPtr->points[planePointsIndex[i]].y;
+		  	pCell->x = cloudPtr->points[outliersIndex[i]].x;
+			pCell->y = cloudPtr->points[outliersIndex[i]].y;
+			pCartography->Update(pCell->x,pCell->y,NonTraversable);
+		}
+
+		// Update the inliers
+		pidx_size = inliersIndex.size();
+		for(int i = 0; i<pidx_size; i++){
+			pCell->x = cloudPtr->points[inliersIndex[i]].x;
+			pCell->y = cloudPtr->points[inliersIndex[i]].y;
 			pCell->normalVector << normalVector[0],normalVector[1],fabs(normalVector[2]);
 			// Update cell state
 			pCell->updateState();
