@@ -17,6 +17,9 @@
 #include "Cell.h"
 #include "DME.h"
 
+static double ALPHA	= 1.0;
+static double BETA = 2.0;
+static double Z_THRESHOLD = 0.4;
 
 class FloorPlaneMapping {
 protected:
@@ -27,7 +30,7 @@ protected:
 	std::string base_frame_;
 	std::string world_frame_;
 
-        int n_samples;
+       int n_samples;
 	double max_range_;
 	double tolerance;
 	double traverse_threshold; // Angle threshold to determine if traversable
@@ -36,12 +39,27 @@ protected:
 
 	pcl::PointCloud<pcl::PointXYZ> lastpc_;
 
-	Cell* pCell;
-	Cartography *pCartography;
+	Cartography *m_pCartography;
 	DME *m_pDME;
 
 protected:
 	// ROS Callbacks
+
+	void UpdateCartographAndDME(float x, float y, float z, int state)
+	{
+		double logOdd = 0.0;
+		double distanceToRobot = hypot(x, y);
+		if(state == Traversable)
+			logOdd = 1.0;
+		else if(state == NonTraversable)
+			logOdd = -1.0;
+		else
+			logOdd = 0;
+		// Step function such that f(0+)=1 and f(+infinite)->0+, f(0-)=-1 and f(-infinite)->0-
+		// The function chosen is f(x)=tanh(ALPHA*param/x^BETA)
+		pCartography->Update(x,y,logOdd*tanh(ALPHA*step_function_parameter/pow(distanceToRobot, BETA)));
+		m_pDME->Update(x,y,z);
+	}
 
 	void pc_Callback(const sensor_msgs::PointCloud2ConstPtr msg){
 		/**
@@ -99,15 +117,16 @@ protected:
 		std::vector<size_t> inliersIndex; // index for inliers of the plane
 		std::vector<size_t> outliersIndex; // index for outliers
 		ROS_INFO("%d useful points out of %d", (int)n, (int)temp.size());
-		for (unsigned int i = 0; i < (unsigned) n_samples; i++) {
-			if (n == 0) {
+		for (unsigned int i = 0; i < (unsigned) n_samples; i++) 
+		{
+			if (n == 0)
 				break;
-			}
 			Eigen::Vector3f samplePoints[3];
 			// Initialize the random seed
 			// srand(time(NULL));
 			// Pick up 3 random points
-			for (int j = 0; j < 3; j++) {
+			for (int j = 0; j < 3; j++) 
+			{
 				int index = getRandomIndex((int) n);
 				samplePoints[j] << lastpc_[pidx[index]].x, lastpc_[pidx[index]].y, lastpc_[pidx[index]].z;
 			}
@@ -125,15 +144,17 @@ protected:
 			for (int i = 0; i < n; i++) {
 				// Calculate the score for this model
 				if (calcDistance(lastpc_[pidx[i]], normalVector, d)
-						<= tolerance) {
-				        tempInliersIndex.push_back(i);
-					score++;
-				}else
+					<= tolerance)
 				{
-				    tempOutliersIndex.push_back(i);
+						tempInliersIndex.push_back(i);
+						score++;
 				}
+				else
+					tempOutliersIndex.push_back(i);
+
 				// Update if a better model is found
-				if (score > best) {
+				if (score > best)
+				{
 					best = score;
 					X[0] = normalVector[0] / -normalVector[2];
 					X[1] = normalVector[1] / -normalVector[2];
@@ -143,6 +164,7 @@ protected:
 				}
 			}
 		}
+		// End of RANSAC
 
 
 		/*
@@ -151,42 +173,33 @@ protected:
 
 		// Update the outliers
 		int pidx_size = outliersIndex.size();
-		for(int i = 0; i<pidx_size; i++){
-		  	pCell->x = cloudPtr->points[outliersIndex[i]].x;
-			pCell->y = cloudPtr->points[outliersIndex[i]].y;
-			pCartography->Update(pCell->x,pCell->y,NonTraversable);
+		for(int i = 0; i<pidx_size; ++i)
+		{
+			float x = cloudPtr->points[inliersIndex[i]].x;
+			float y = cloudPtr->points[inliersIndex[i]].y;
+			float z = cloudPtr->points[inliersIndex[i]].y;
+			if(z > Z_THRESHOLD)
+				UpdateCartographAndDME(x,y,z, NonTraversable);
+			else
+				UpdateCartographAndDME(x,y,z, Unknown);
 		}
 
 		// Update the inliers
 		pidx_size = inliersIndex.size();
-		for(int i = 0; i<pidx_size; i++){
-			pCell->x = cloudPtr->points[inliersIndex[i]].x;
-			pCell->y = cloudPtr->points[inliersIndex[i]].y;
-			pCell->normalVector << normalVector[0],normalVector[1],fabs(normalVector[2]);
-			// Update cell state
-			pCell->updateState();
-			// Mapping
-
-			////////////////////////
-			// Not anymore pCell->state
-			//pCartography->Update(pCell->x,pCell->y,pCell->state);
-			double logOdd = 0.0;
-			double distanceToRobot = hypot(pCell->x, pCell->y);
-			if(pCell->state == Traversable)
-				logOdd = 1.0;
-			else
-				logOdd = -1.0;
-			// Step function such that f(0+)=1 and f(+infinite)->0+, f(0-)=-1 and f(-infinite)->0-
-			// This needs to be tweaked. Function chosen is f(x)=tanh(param/x^2)
-			pCartography->Update(pCell->x,pCell->y,logOdd*tanh(step_function_parameter/(distanceToRobot*distanceToRobot)));
-			m_pDME->Update(pCell->x,pCell->y, cloudPtr->points[pidx[i]].z);
+		for(int i = 0; i<pidx_size; ++i)
+		{
+			float x = cloudPtr->points[inliersIndex[i]].x;
+			float y = cloudPtr->points[inliersIndex[i]].y;
+			float z = cloudPtr->points[inliersIndex[i]].y;
+			UpdateCartographAndDME(x,y,z,Traversable);	
 		}
 		pCartography->PublishImage();
 	}
 
 public:
 	FloorPlaneMapping() :
-			nh_("~") {
+			nh_("~")
+	{
 		nh_.param("base_frame", base_frame_, std::string("/body"));
 		nh_.param("world_frame", world_frame_, std::string("/world"));
 		nh_.param("max_range", max_range_, 5.0);
@@ -195,6 +208,9 @@ public:
 		nh_.param("step_function_parameter",step_function_parameter, 2.0);
 		nh_.param("n_samples", n_samples, 1000);
 		nh_.param("tolerance", tolerance, 1.0);
+		nh_.param("alpha", ALPHA, 1.0);
+		nh_.param("beta", BETA, 2.0);
+		nh_.param("z_threshold", Z_THRESHOLD, 0.4);
 
 		ROS_INFO("Mapping");
 		assert(n_samples > 0);
@@ -205,15 +221,14 @@ public:
 		scan_sub_ = nh_.subscribe("scans", 1, &FloorPlaneMapping::pc_Callback,
 				this);
 
-		pCartography = new Cartography(nh_, 1.0, 10);
+		m_pCartography = new Cartography(nh_, 1.0, 10);
 		m_pDME = new DME(nh_, 1.0, 10);
-		pCell = new Cell();
-		pCell->thetaThreshold = traverse_threshold;
 	}
 
-	~FloorPlaneMapping(){
-		delete pCell;
-		delete pCartography;
+	~FloorPlaneMapping()
+	{
+		delete m_pCartography;
+		delete m_pDME;
 	}
 
 	ros::NodeHandle getNodeHanlder(){
@@ -231,7 +246,8 @@ public:
 
 };
 
-int main(int argc, char * argv[]) {
+int main(int argc, char * argv[])
+{
 	ros::init(argc, argv, "floor_plane_mapping");
 	FloorPlaneMapping fp;
 	ros::spin();

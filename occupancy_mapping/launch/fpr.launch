@@ -7,6 +7,10 @@
       <param name="traverse_threshold" value="0.6" />
       <param name="normal_estimation_radius" value="0.03" />
       <param name="step_function_parameter" value="2.0" />
+	 <param name="alpha" value="1.0" />
+	 <param name="beta" value="2.0" />
+	 <param name="z_threshold" value="1.0" />
+
     
       <remap from="/floor_plane_mapping/scans" to="/vrep/depthSensor"/>
   </node>
