@@ -13,6 +13,7 @@
 #define MAX_NUM_MEASURES	INT_MAX/2
 // Parameter of the covariance function (squared exp. kernel)
 #define TAU	20.0
+#define SIGMA_2	0.1
 
 using namespace std;
 
@@ -124,9 +125,9 @@ void DME::PublishImage()
 }
 
 // Squared exponential kernel function
-static float Covariance(float u, float v)
+static float Covariance(float u, float v, float sigmaU, float sigmaV))
 {
-	return exp(-(u-v)*(u-v)/(2*TAU*TAU));
+	return sigmaU*sigmaV*exp(-(u-v)*(u-v)/(2*TAU*TAU));
 }
 
 static float Mean(float newValue, float previousMean, int numMeasurements)
@@ -176,7 +177,7 @@ void DME::Update(double x, double y, double data)
 			for(int j = 0; j < m_uiCellSize; j++)
 			{
 				pData->pHeightMatrix->at<float>(i,j)=FLT_MIN;
-				pData->pVarianceMatrix->at<float>(i,j)=0.0f;
+				pData->pVarianceMatrix->at<float>(i,j)=SIGMA_2;
 				pData->pNumMeasurementsMatrix->at<int>(i,j)=0;
 			}
 		}
@@ -194,15 +195,15 @@ void DME::Update(double x, double y, double data)
 	int n = int(_01y*m_uiCellSize);
 	// Previous height stored before measuring data
 	float &fHeight = pData->pHeightMatrix->at<float>(m, n);
-
-	float fCorrelationCoefficient = Covariance(data,fHeight);
+	float &fVariance = pData->pVarianceMatrix->at<float>(m,n);
+	float fCorrelationCoefficient = Covariance(data,fHeight, SIGMA_2, fVariance);
 	int &numMeasurements = pData->pNumMeasurementsMatrix->at<int>(m,n);
 
 	// Now perform the real update of the DME
 	if(fHeight==FLT_MIN)
 		fHeight = data;
 	else
-		fHeight = Mean(data,fHeight,numMeasurements)+fCorrelationCoefficient*(data-fHeight);
-	pData->pVarianceMatrix->at<float>(m,n) = 1-fCorrelationCoefficient*fCorrelationCoefficient;
+		fHeight = Mean(data,fHeight,numMeasurements)+(SIGMA_2/fVariance)*fCorrelationCoefficient*(data-fHeight);
+	fVariance = SIGMA_2*(1-fCorrelationCoefficient*fCorrelationCoefficient);
 	numMeasurements = std::min(numMeasurements+1,MAX_NUM_MEASURES);
 }
