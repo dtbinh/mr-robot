@@ -8,6 +8,7 @@
 #include "Cell.h"
 #include <limits.h>
 #include <math.h>
+#include <fstream>
 
 // We cap the maximum number of measures to update recursively their mean
 #define MAX_NUM_MEASURES	INT_MAX/2
@@ -46,6 +47,7 @@ DME::DME(ros::NodeHandle &n, double dCellSize, unsigned int uiCellSize):
 	m_MinCellRow(INT_MAX), m_MaxCellRow(INT_MIN),
 	m_MinCellColumn(INT_MAX), m_MaxCellColumn(INT_MIN),
 	m_pFinalMatrix(nullptr),
+	m_pFinalVarianceMatrix(nullptr),
 	m_OldMaxCellRow(0), m_OldMinCellRow(0),
 	m_OldMaxCellColumn(0), m_OldMinCellColumn(0)
 {
@@ -56,12 +58,14 @@ DME::~DME()
 {
 	for(auto it = m_CellMap.begin(); it != m_CellMap.end(); it++)
 		delete(it->second);
+	if(m_pFinalMatrix)
+		delete m_pFinalMatrix;
+	if(m_pFinalVarianceMatrix)
+		delete m_pFinalVarianceMatrix;
 }
 
 void DME::PublishImage()
 {
-	// TODO
-#if 0
 	if(m_MinCellRow == INT_MAX || m_MaxCellRow == INT_MIN || m_MinCellColumn == INT_MAX || m_MaxCellColumn == INT_MIN)
 		return;
 
@@ -77,11 +81,17 @@ void DME::PublishImage()
 
 		if(m_pFinalMatrix)
 			delete m_pFinalMatrix;
+		if(m_pFinalVarianceMatrix)
+			delete m_pFinalVarianceMatrix;
 		m_pFinalMatrix =  new cv::Mat(numRows,numColumns,CV_32F);
+		m_pFinalVarianceMatrix =  new cv::Mat(numRows,numColumns,CV_32F);
 		for(int i = 0; i < numRows; i++)
 		{
 			for(int j = 0; j < numColumns; j++)
+			{
 				m_pFinalMatrix->at<float>(i, j) = 0.0f;
+				m_pFinalVarianceMatrix->at<float>(i, j) = 0.0f;
+			}
 		}
 	}
 	
@@ -96,32 +106,18 @@ void DME::PublishImage()
 			{
 				int m = int(it->second->m-m_MinCellRow)*m_uiCellSize+i;
 				int n = int(it->second->n-m_MinCellColumn)*m_uiCellSize+j;
-				m_pFinalMatrix->at<float>(m, n) = it->second->pMatrix->at<float>(i, j);
+				m_pFinalMatrix->at<float>(m, n) = it->second->pHeightMatrix->at<float>(i, j);
+				m_pFinalVarianceMatrix->at<float>(m, n) = it->second->pVarianceMatrix->at<float>(i, j);
 			}
 		}
 	}
-
-	auto imageMatrix = cv::Mat(numRows,numColumns,CV_8UC1);
-	// Prepare the colors before publishing the cvMat as an image
+	std::ofstream out("DME.txt", std::ios_base::ate);
 	for(int i = 0; i < numRows; i++)
 	{
 		for(int j = 0; j < numColumns; j++)
-		{
-			// Compute the probability associated with the log odd
-			double p = 1.0-1.0/(1.0+exp(m_pFinalMatrix->at<float>(i, j)));
-			// p close to 1 means that the certainty that the cell is traversable is very high.
-			// We return a color close to 255 (white) for such values.
-			imageMatrix.at<int>(i, j) = int(p*255.0);
-		}
+			out << double(i)*m_dCellSize << " " << double(j)*m_dCellSize << " " << m_pFinalMatrix->at<float>(i, j) << " " << m_pFinalVarianceMatrix->at<float>(i, j) << std::endl;
 	}
-
-
-	cv_bridge::CvImage out_msg;
-	out_msg.encoding = "mono8";
-	out_msg.image    = imageMatrix;
-
-	m_ImagePublisher.publish(out_msg.toImageMsg());
-#endif
+	out.close();
 }
 
 // Squared exponential kernel function

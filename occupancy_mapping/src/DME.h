@@ -25,7 +25,9 @@ protected:
 	// Map = Cells. Cells = Fixed size matrices. Matrix elements = data about a world space square of dimension m_dCellSize.
 	std::map<int, BlockMatrixData*> m_CellMap;
 	// Concatenates data from the map of cells.
-	 cv::Mat *m_pFinalMatrix;	// cvCreateMat(m,n,CV_64FC1);
+	cv::Mat *m_pFinalMatrix;
+
+	cv::Mat *m_pFinalVarianceMatrix;
 
 	const double m_dCellSize;
 	// Size of the matrix representing a square cell of dimension m_dCellSize
