@@ -193,7 +193,8 @@ protected:
 			float z = cloudPtr->points[inliersIndex[i]].y;
 			UpdateCartographAndDME(x,y,z,Traversable);	
 		}
-		pCartography->PublishImage();
+		m_pCartography->PublishImage();
+		m_pDME->PublishImage();
 	}
 
 public:
