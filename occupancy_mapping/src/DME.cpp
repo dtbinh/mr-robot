@@ -203,3 +203,7 @@ void DME::Update(double x, double y, double data)
 	fVariance = SIGMA_2*(1-fCorrelationCoefficient*fCorrelationCoefficient);
 	numMeasurements = std::min(numMeasurements+1,MAX_NUM_MEASURES);
 }
+
+cv::Mat* DME::getMat(){
+	return this->m_pFinalMatrix;
+}

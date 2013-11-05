@@ -183,3 +183,7 @@ void Cartography::Update(double x, double y, double data)
 	fLogOdd = float(data) + fLogOdd;
 	CapRange(fLogOdd);
 }
+
+cv::Mat* Cartography::getMat(){
+	return this->m_pFinalMatrix;
+}

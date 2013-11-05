@@ -52,4 +52,5 @@ public:
 	void PublishImage();
 
 	void Update(double x, double y, double data);
+	cv::Mat* getMat();
 };

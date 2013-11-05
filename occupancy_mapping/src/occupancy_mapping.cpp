@@ -8,6 +8,7 @@
 #include <tf/tf.h>
 #include <tf/transform_listener.h>
 #include <boost/bind.hpp>
+#include <opencv2/ml/ml.hpp>
 
 #include <Eigen/Core>
 #include <Eigen/Cholesky>
@@ -57,7 +58,7 @@ protected:
 			logOdd = 0;
 		// Step function such that f(0+)=1 and f(+infinite)->0+, f(0-)=-1 and f(-infinite)->0-
 		// The function chosen is f(x)=tanh(ALPHA*param/x^BETA)
-		pCartography->Update(x,y,logOdd*tanh(ALPHA*step_function_parameter/pow(distanceToRobot, BETA)));
+		m_pCartography->Update(x,y,logOdd*tanh(ALPHA*step_function_parameter/pow(distanceToRobot, BETA)));
 		m_pDME->Update(x,y,z);
 	}
 
@@ -195,6 +196,32 @@ protected:
 		}
 		m_pCartography->PublishImage();
 		m_pDME->PublishImage();
+
+		/*
+		 * SVM
+		 */
+		CvSVM svm;
+		CvSVMParams params;
+
+		// Set the params
+	    params.svm_type    = CvSVM::C_SVC;
+	    params.kernel_type = CvSVM::RBF; // RBF Kernel: exp(-gamma*|u-v|^2)
+	    params.C = 1;
+	    params.gamma = 0.5;
+	    params.term_crit   = cvTermCriteria(CV_TERMCRIT_ITER, 100, 1e-6);
+
+	    // Training
+	    // {height}:{occupancy}
+	    cv::Mat trainData = m_pDME->getMat()->reshape(0,1);
+	    cv::Mat labels = m_pCartography->getMat()->reshape(0,1);
+	    svm.train(trainData,labels,cv::Mat(),cv::Mat(),params);
+	    svm.save("svm_model.xml");
+
+	    // Predict
+	    cv::Mat samples;
+	    cv::Mat results;
+	    svm.predict(samples,results);
+
 	}
 
 public:
@@ -245,6 +272,19 @@ public:
 		return mtime;
 	}
 
+	// Get a random index for the cloud point
+	size_t getRandomIndex(unsigned long i) {
+		size_t j = std::min((rand() / (double) RAND_MAX) * i, (double) i - 1);
+		return j;
+	}
+
+	// Calculate the distance between the point and the plane
+	double calcDistance(pcl::PointXYZ& point, Eigen::Vector3f& normalVector,
+			double d) {
+		Eigen::Vector3f t;
+		t << point.x, point.y, point.z;
+		return fabs(t.dot(normalVector) + d);
+	}
 };
 
 int main(int argc, char * argv[])
