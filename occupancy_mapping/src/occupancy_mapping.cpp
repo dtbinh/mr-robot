@@ -24,14 +24,16 @@ static double Z_THRESHOLD = 0.4;
 
 class FloorPlaneMapping {
 protected:
+	ros::NodeHandle nh_;
 	ros::Subscriber scan_sub_;
+	ros::Publisher pcl_pub_;
+
 	tf::TransformListener listener_;
 
-	ros::NodeHandle nh_;
 	std::string base_frame_;
 	std::string world_frame_;
 
-       int n_samples;
+	int n_samples;
 	double max_range_;
 	double tolerance;
 	double traverse_threshold; // Angle threshold to determine if traversable
@@ -218,10 +220,22 @@ protected:
 	    svm.save("svm_model.xml");
 
 	    // Predict
-	    cv::Mat samples;
-	    cv::Mat results;
+	    cv::Mat samples(n_samples,1,CV_32F);
+	    cv::Mat results(n_samples,1,CV_32F);
+	    for (unsigned int i = 0; i < (unsigned) n_samples; i++) {
+	    	samples.at<float>(i,1) = lastpc_[pidx[i]];
+	    }
 	    svm.predict(samples,results);
 
+	    // Publish the results
+	    std::vector<size_t> obstacleIndex;
+	    pcl::PointCloud<pcl::PointXYZ> pcl;
+	    for (unsigned int i = 0; i < (unsigned) n_samples; i++) {
+	    	if (results.at<float>(i,1) == NonTraversable){
+	    		pcl.push_back(lastpc_[pidx[i]]);
+	    	}
+	    }
+	    pcl_pub_.Publisher(pcl);
 	}
 
 public:
@@ -248,6 +262,7 @@ public:
 
 		scan_sub_ = nh_.subscribe("scans", 1, &FloorPlaneMapping::pc_Callback,
 				this);
+		pcl_pub_ = nh_.advertise<pcl::PointCloud<pcl::PointXYZ>>("obstacles",1);
 
 		m_pCartography = new Cartography(nh_, 1.0, 10);
 		m_pDME = new DME(nh_, 1.0, 10);
