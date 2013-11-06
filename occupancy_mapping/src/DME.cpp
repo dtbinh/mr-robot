@@ -139,8 +139,6 @@ void DME::Update(double x, double y, double data)
 	i = floor(double(x)/m_dCellSize);
 	j = floor(double(y)/m_dCellSize);
 
-	ROS_INFO("%d %d %d", m_MaxCellRow, i, j);
-
 	m_MaxCellRow = std::max(m_MaxCellRow, i);
 	m_MinCellRow = std::min(m_MinCellRow, i);
 	m_MaxCellColumn = std::max(m_MaxCellColumn, j);

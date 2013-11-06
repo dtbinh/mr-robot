@@ -190,13 +190,10 @@ void Cartography::Update(double x, double y, double data)
 	// Convert to cvMat row and column
 	int m = int(_01x*m_uiCellSize);
 	int n = int(_01y*m_uiCellSize);
-	//ROS_INFO("%d %d", m, n);
-	//ROS_INFO("%f", pData->pMatrix->at<float>(m, n));
 	float fLogOdd = pData->pMatrix->at<float>(m, n);
 	fLogOdd = float(data) + fLogOdd;
-	//CapRange(fLogOdd);
+	CapRange(fLogOdd);
 	pData->pMatrix->at<float>(m, n) = fLogOdd;
-	//ROS_INFO("%f", pData->pMatrix->at<float>(m, n));
 
 }
 

@@ -23,7 +23,7 @@ static double BETA = 2.0;
 static double Z_THRESHOLD = 0.4;
 static double belief_mod = 3.0;
 
-const double PI  =3.141592653589793238462;
+const double PI=3.141592653589793238462;
 
 class FloorPlaneMapping {
 protected:
@@ -64,9 +64,7 @@ protected:
 		// Step function such that f(0+)=1 and f(+infinite)->0+, f(0-)=-1 and f(-infinite)->0-
 		// The function chosen is f(x)=tanh(ALPHA*param/x^BETA)
 		double d=logOdd*tanh(ALPHA*step_function_parameter/pow(distanceToRobot, BETA));
-		ROS_INFO("Update CARTO");
 		m_pCartography->Update(x,y,d);
-		ROS_INFO("Update");
 		m_pDME->Update(x,y,z);
 	}
 
@@ -114,7 +112,6 @@ protected:
 			pidx.push_back(i);
 		}
 		
-
 		/*
 		 * RANSAC
 		 */		
@@ -169,14 +166,14 @@ protected:
 				}
 			}
 		}
-		// End of RANSAC
+		/**
+		 * End of RANSAC
+		 */
 
 
 		/*
 		 * Update and mapping
 		 */
-
-		int pidx_size = inliersIndex.size();
 
 		Eigen::Vector3f zVector;
 		double angle;
@@ -188,51 +185,42 @@ protected:
 		if(fabs(angle) > PI/2)
 			angle=PI-fabs(angle);
 
-		if (fabs(angle) <= traverse_threshold)
-		{
-			// Update the inliers
-			for(int i = 0; i<pidx_size; ++i)
-			{
-				float x = cloudPtr->points[inliersIndex[i]].x;
-				float y = cloudPtr->points[inliersIndex[i]].y;
-				float z = cloudPtr->points[inliersIndex[i]].z;
-				UpdateCartographAndDME(x,y,z,Traversable);
-				//ROS_INFO("Traversable");
-			}
-			pidx_size = outliersIndex.size();
-			for(int i = 0; i<pidx_size; ++i)
-			{
-				float x = cloudPtr->points[outliersIndex[i]].x;
-				float y = cloudPtr->points[outliersIndex[i]].y;
-				float z = cloudPtr->points[outliersIndex[i]].z;
-				if(z > Z_THRESHOLD)
-					UpdateCartographAndDME(x,y,z, NonTraversable);
-				else
-					UpdateCartographAndDME(x,y,z, Unknown);
-				//ROS_INFO("NonTraversable/Unknown");
-			}
-		}
-		else
-		{
-			for(int i = 0; i<pidx_size; ++i)
-			{
-				float x = cloudPtr->points[inliersIndex[i]].x;
-				float y = cloudPtr->points[inliersIndex[i]].y;
-				float z = cloudPtr->points[inliersIndex[i]].z;
-				UpdateCartographAndDME(x,y,z,NonTraversable);
-				//ROS_INFO("NonTraversable");
-			}
-			pidx_size = outliersIndex.size();
-			for(int i = 0; i<pidx_size; ++i)
-			{
-				float x = cloudPtr->points[outliersIndex[i]].x;
-				float y = cloudPtr->points[outliersIndex[i]].y;
-				float z = cloudPtr->points[outliersIndex[i]].z;
-				UpdateCartographAndDME(x,y,z, Unknown);
-				//ROS_INFO("Unknown");
-			}
+		// Update the state
+		CellState inlierState;
+		CellState outlierState;
+		CellState outlierAltState;
+		if (fabs(angle) <= traverse_threshold) {
+			inlierState = Traversable;
+			outlierState = NonTraversable;
+			outlierAltState = Unknown;
+		}else{
+			inlierState = NonTraversable;
+			outlierState = Unknown;
+			outlierAltState = Unknown;
 		}
 
+		// Update inliers
+		int pidx_size = inliersIndex.size();
+		for (int i = 0; i < pidx_size; ++i) {
+			float x = cloudPtr->points[inliersIndex[i]].x;
+			float y = cloudPtr->points[inliersIndex[i]].y;
+			float z = cloudPtr->points[inliersIndex[i]].z;
+			UpdateCartographAndDME(x, y, z, inlierState);
+		}
+
+		// Update outliers
+		pidx_size = outliersIndex.size();
+		for (int i = 0; i < pidx_size; ++i) {
+			float x = cloudPtr->points[outliersIndex[i]].x;
+			float y = cloudPtr->points[outliersIndex[i]].y;
+			float z = cloudPtr->points[outliersIndex[i]].z;
+			if (z > Z_THRESHOLD)
+				UpdateCartographAndDME(x, y, z, outlierState);
+			else
+				UpdateCartographAndDME(x, y, z, outlierAltState);
+		}
+
+		// Publish the results
 		m_pCartography->PublishImage();
 		m_pDME->PublishToFile();
 
@@ -272,10 +260,18 @@ protected:
 	    		pcl.push_back(lastpc_[pidx[i]]);
 	    	}
 	    }
+
 	    pcl_pub_.publish(pcl);*/
 	    /*
 	     * End of SVM
 	     */
+
+		pcl::PointCloud<pcl::PointXYZ> pcl;
+		pcl.header.frame_id = world_frame_;
+		for(int i=0;i<100;i++){
+			pcl.push_back(pcl::PointXYZ(i,i,i));
+		}
+		pcl_pub_.publish(pcl);
 	}
 
 public:
@@ -303,7 +299,7 @@ public:
 
 		scan_sub_ = nh_.subscribe("scans", 1, &FloorPlaneMapping::pc_Callback,
 				this);
-//		pcl_pub_ = nh_.advertise<pcl::PointCloud<pcl::PointXYZ>>("obstacles",1);
+		pcl_pub_ = nh_.advertise<pcl::PointCloud<pcl::PointXYZ>>("obstacles",1);
 
 		m_pCartography = new Cartography(nh_, 1.0, 10);
 		m_pDME = new DME(1.0, 10);
