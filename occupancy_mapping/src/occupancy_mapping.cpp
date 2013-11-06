@@ -21,6 +21,9 @@
 static double ALPHA	= 1.0;
 static double BETA = 2.0;
 static double Z_THRESHOLD = 0.4;
+static double belief_mod = 3.0;
+
+const double PI  =3.141592653589793238462;
 
 class FloorPlaneMapping {
 protected:
@@ -53,14 +56,17 @@ protected:
 		double logOdd = 0.0;
 		double distanceToRobot = hypot(x, y);
 		if(state == Traversable)
-			logOdd = 1.0;
+			logOdd = belief_mod;
 		else if(state == NonTraversable)
-			logOdd = -1.0;
+			logOdd = -belief_mod;
 		else
 			logOdd = 0;
 		// Step function such that f(0+)=1 and f(+infinite)->0+, f(0-)=-1 and f(-infinite)->0-
 		// The function chosen is f(x)=tanh(ALPHA*param/x^BETA)
-		m_pCartography->Update(x,y,logOdd*tanh(ALPHA*step_function_parameter/pow(distanceToRobot, BETA)));
+		double d=logOdd*tanh(ALPHA*step_function_parameter/pow(distanceToRobot, BETA));
+		ROS_INFO("Update CARTO");
+		m_pCartography->Update(x,y,d);
+		ROS_INFO("Update");
 		m_pDME->Update(x,y,z);
 	}
 
@@ -114,12 +120,11 @@ protected:
 		 */		
 		n = pidx.size();
 		size_t best = 0;
-		double X[3] = { 0, 0, 0 };
 
 		Eigen::Vector3f normalVector;
 		std::vector<size_t> inliersIndex; // index for inliers of the plane
 		std::vector<size_t> outliersIndex; // index for outliers
-		ROS_INFO("%d useful points out of %d", (int)n, (int)temp.size());
+//		ROS_INFO("%d useful points out of %d", (int)n, (int)temp.size());
 		for (unsigned int i = 0; i < (unsigned) n_samples; i++) 
 		{
 			if (n == 0)
@@ -159,9 +164,6 @@ protected:
 				if (score > best)
 				{
 					best = score;
-					X[0] = normalVector[0] / -normalVector[2];
-					X[1] = normalVector[1] / -normalVector[2];
-					X[2] = d / -normalVector[2];
 					inliersIndex = tempInliersIndex;
 					outliersIndex = tempOutliersIndex;
 				}
@@ -174,35 +176,70 @@ protected:
 		 * Update and mapping
 		 */
 
-		// Update the outliers
-		int pidx_size = outliersIndex.size();
-		for(int i = 0; i<pidx_size; ++i)
+		int pidx_size = inliersIndex.size();
+
+		Eigen::Vector3f zVector;
+		double angle;
+		zVector << 0, 0, 1;
+		// Get the angle between the normalVector and the Z axis
+		angle = acos(
+				normalVector.dot(zVector) / (normalVector.norm() * zVector.norm()));
+		// Set the threshold
+		if(fabs(angle) > PI/2)
+			angle=PI-fabs(angle);
+
+		if (fabs(angle) <= traverse_threshold)
 		{
-			float x = cloudPtr->points[inliersIndex[i]].x;
-			float y = cloudPtr->points[inliersIndex[i]].y;
-			float z = cloudPtr->points[inliersIndex[i]].y;
-			if(z > Z_THRESHOLD)
-				UpdateCartographAndDME(x,y,z, NonTraversable);
-			else
+			// Update the inliers
+			for(int i = 0; i<pidx_size; ++i)
+			{
+				float x = cloudPtr->points[inliersIndex[i]].x;
+				float y = cloudPtr->points[inliersIndex[i]].y;
+				float z = cloudPtr->points[inliersIndex[i]].z;
+				UpdateCartographAndDME(x,y,z,Traversable);
+				//ROS_INFO("Traversable");
+			}
+			pidx_size = outliersIndex.size();
+			for(int i = 0; i<pidx_size; ++i)
+			{
+				float x = cloudPtr->points[outliersIndex[i]].x;
+				float y = cloudPtr->points[outliersIndex[i]].y;
+				float z = cloudPtr->points[outliersIndex[i]].z;
+				if(z > Z_THRESHOLD)
+					UpdateCartographAndDME(x,y,z, NonTraversable);
+				else
+					UpdateCartographAndDME(x,y,z, Unknown);
+				//ROS_INFO("NonTraversable/Unknown");
+			}
+		}
+		else
+		{
+			for(int i = 0; i<pidx_size; ++i)
+			{
+				float x = cloudPtr->points[inliersIndex[i]].x;
+				float y = cloudPtr->points[inliersIndex[i]].y;
+				float z = cloudPtr->points[inliersIndex[i]].z;
+				UpdateCartographAndDME(x,y,z,NonTraversable);
+				//ROS_INFO("NonTraversable");
+			}
+			pidx_size = outliersIndex.size();
+			for(int i = 0; i<pidx_size; ++i)
+			{
+				float x = cloudPtr->points[outliersIndex[i]].x;
+				float y = cloudPtr->points[outliersIndex[i]].y;
+				float z = cloudPtr->points[outliersIndex[i]].z;
 				UpdateCartographAndDME(x,y,z, Unknown);
+				//ROS_INFO("Unknown");
+			}
 		}
 
-		// Update the inliers
-		pidx_size = inliersIndex.size();
-		for(int i = 0; i<pidx_size; ++i)
-		{
-			float x = cloudPtr->points[inliersIndex[i]].x;
-			float y = cloudPtr->points[inliersIndex[i]].y;
-			float z = cloudPtr->points[inliersIndex[i]].y;
-			UpdateCartographAndDME(x,y,z,Traversable);	
-		}
 		m_pCartography->PublishImage();
-		m_pDME->PublishImage();
+		m_pDME->PublishToFile();
 
 		/*
 		 * SVM
 		 */
-		CvSVM svm;
+/*		CvSVM svm;
 		CvSVMParams params;
 
 		// Set the params
@@ -223,7 +260,7 @@ protected:
 	    cv::Mat samples(n_samples,1,CV_32F);
 	    cv::Mat results(n_samples,1,CV_32F);
 	    for (unsigned int i = 0; i < (unsigned) n_samples; i++) {
-	    	samples.at<float>(i,1) = lastpc_[pidx[i]];
+	    	samples.at<float>(i,1) = lastpc_[pidx[i]].z;
 	    }
 	    svm.predict(samples,results);
 
@@ -235,7 +272,10 @@ protected:
 	    		pcl.push_back(lastpc_[pidx[i]]);
 	    	}
 	    }
-	    pcl_pub_.Publisher(pcl);
+	    pcl_pub_.publish(pcl);*/
+	    /*
+	     * End of SVM
+	     */
 	}
 
 public:
@@ -246,13 +286,14 @@ public:
 		nh_.param("world_frame", world_frame_, std::string("/world"));
 		nh_.param("max_range", max_range_, 5.0);
 		nh_.param("normal_estimation_radius",normal_estimation_radius,0.03);
-		nh_.param("traverse_threshold",traverse_threshold, 1.2);
+		nh_.param("traverse_threshold",traverse_threshold, 0.3);
 		nh_.param("step_function_parameter",step_function_parameter, 2.0);
 		nh_.param("n_samples", n_samples, 1000);
 		nh_.param("tolerance", tolerance, 1.0);
 		nh_.param("alpha", ALPHA, 1.0);
 		nh_.param("beta", BETA, 2.0);
 		nh_.param("z_threshold", Z_THRESHOLD, 0.4);
+		nh_.param("belief_mod", belief_mod, 3.0);
 
 		ROS_INFO("Mapping");
 		assert(n_samples > 0);
@@ -262,10 +303,10 @@ public:
 
 		scan_sub_ = nh_.subscribe("scans", 1, &FloorPlaneMapping::pc_Callback,
 				this);
-		pcl_pub_ = nh_.advertise<pcl::PointCloud<pcl::PointXYZ>>("obstacles",1);
+//		pcl_pub_ = nh_.advertise<pcl::PointCloud<pcl::PointXYZ>>("obstacles",1);
 
 		m_pCartography = new Cartography(nh_, 1.0, 10);
-		m_pDME = new DME(nh_, 1.0, 10);
+		m_pDME = new DME(1.0, 10);
 	}
 
 	~FloorPlaneMapping()
@@ -304,7 +345,7 @@ public:
 
 int main(int argc, char * argv[])
 {
-	ros::init(argc, argv, "floor_plane_mapping");
+	ros::init(argc, argv, "occupancy_mapping");
 	FloorPlaneMapping fp;
 	ros::spin();
 	return 0;

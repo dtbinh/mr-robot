@@ -1,1 +1,0 @@
-/usr/bin/c++  -fPIC -g   -shared -Wl,-soname,libgtest_main.so -o libgtest_main.so CMakeFiles/gtest_main.dir/src/gtest_main.cc.o -L/home/group3/catkin_ws/src/floor_plane_mapping/gtest/src -lpthread libgtest.so -lpthread -Wl,-rpath,/home/group3/catkin_ws/src/floor_plane_mapping/gtest/src:/home/group3/catkin_ws/src/floor_plane_mapping/gtest 

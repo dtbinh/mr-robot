@@ -10,7 +10,7 @@
 #include <map>
 #include <math.h>
 
-#define nullptr 0;
+#define nullptr 0
 
 
 // Stores the block matrix row/column for easier access
@@ -19,9 +19,6 @@ struct BlockMatrixData;
 class DME
 {
 protected:
-	image_transport::ImageTransport m_ImageTransport;
-	image_transport::Publisher m_ImagePublisher;
-
 	// Map = Cells. Cells = Fixed size matrices. Matrix elements = data about a world space square of dimension m_dCellSize.
 	std::map<int, BlockMatrixData*> m_CellMap;
 	// Concatenates data from the map of cells.
@@ -47,11 +44,11 @@ protected:
 	int m_OldMinCellColumn;
 
 public:
-	DME(ros::NodeHandle &n, double dCellSize, unsigned int uiCellSize);
+	DME(double dCellSize, unsigned int uiCellSize);
 
 	~DME();
 
-	void PublishImage();
+	void PublishToFile();
 
 	void Update(double x, double y, double data);
 	cv::Mat* getMat();

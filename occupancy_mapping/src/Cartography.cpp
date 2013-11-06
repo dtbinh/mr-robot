@@ -73,6 +73,8 @@ void Cartography::PublishImage()
 		}
 	}
 	
+	// ROS_INFO("%d %d", numRows, numColumns);
+
 	// Copy the data from m_CellMap
 	// Note that the image has the Y axis inverted so we invert the rows in the final matrix
 	// to restore the correct orientation
@@ -89,35 +91,42 @@ void Cartography::PublishImage()
 		}
 	}
 
-	auto imageMatrix = cv::Mat(numRows,numColumns,CV_8UC1);
+	auto imageMatrix = cv::Mat(numRows,numColumns,CV_32S);
 	// Prepare the colors before publishing the cvMat as an image
 	for(int i = 0; i < numRows; i++)
 	{
 		for(int j = 0; j < numColumns; j++)
 		{
 			// Compute the probability associated with the log odd
-			double p = 1.0-1.0/(1.0+exp(m_pFinalMatrix->at<float>(i, j)));
+			double p = 1.0f-1.0f/(1.0f+exp(m_pFinalMatrix->at<float>(i, j)));
 			// p close to 1 means that the certainty that the cell is traversable is very high.
 			// We return a color close to 255 (white) for such values.
-			imageMatrix.at<int>(i, j) = int(p*255.0);
+			//ROS_INFO("%f",m_pFinalMatrix->at<float>(i, j));
+			int color=int(p*255.0);
+			//ROS_INFO("%f %d", p, color);
+			int finalColor = color;
+			finalColor |= (color << 8);
+			finalColor |= (color << 16);
+			imageMatrix.at<int>(i, j) =  finalColor;
 		}
 	}
 
 
 	cv_bridge::CvImage out_msg;
-	out_msg.encoding = "mono8";
+	out_msg.encoding = "rgba8";
 	out_msg.image    = imageMatrix;
 
 	// O.O This is really weird we did an infinite loop for Project 1, and it... worked ?
+
 	/*
 	ros::Rate loop_rate(5);
 	while (ros::ok())
 	{
 		m_ImagePublisher.publish(out_msg.toImageMsg());
-		ros::spinOnce();
+
 		loop_rate.sleep();
-	}
-	*/
+	}*/
+
 	m_ImagePublisher.publish(out_msg.toImageMsg());
 }
 
@@ -125,15 +134,15 @@ static void CapRange(float &value)
 {
 	if(value >= MAX_LOG_ODD)
 		value = MAX_LOG_ODD;
-	if(value =< MIN_LOG_ODD)
+	if(value <= MIN_LOG_ODD)
 		value = MIN_LOG_ODD;
 }
 
 void Cartography::Update(double x, double y, double data)
 {
 	int i, j;
-	i = ceil(double(x)/m_dCellSize);
-	j = ceil(double(y)/m_dCellSize);
+	i = floor(double(x)/m_dCellSize);
+	j = floor(double(y)/m_dCellSize);
 
 	m_MaxCellRow = std::max(m_MaxCellRow, i);
 	m_MinCellRow = std::min(m_MinCellRow, i);
@@ -165,7 +174,9 @@ void Cartography::Update(double x, double y, double data)
 		for(int i = 0; i < m_uiCellSize; i++)
 		{
 			for(int j = 0; j < m_uiCellSize; j++)
+			{
 				pData->pMatrix->at<float>(i,j)=0.0f;
+			}
 		}
 		m_CellMap[idx] = pData;
 	}
@@ -179,9 +190,14 @@ void Cartography::Update(double x, double y, double data)
 	// Convert to cvMat row and column
 	int m = int(_01x*m_uiCellSize);
 	int n = int(_01y*m_uiCellSize);
-	float &fLogOdd = pData->pMatrix->at<float>(m, n);
+	//ROS_INFO("%d %d", m, n);
+	//ROS_INFO("%f", pData->pMatrix->at<float>(m, n));
+	float fLogOdd = pData->pMatrix->at<float>(m, n);
 	fLogOdd = float(data) + fLogOdd;
-	CapRange(fLogOdd);
+	//CapRange(fLogOdd);
+	pData->pMatrix->at<float>(m, n) = fLogOdd;
+	//ROS_INFO("%f", pData->pMatrix->at<float>(m, n));
+
 }
 
 cv::Mat* Cartography::getMat(){

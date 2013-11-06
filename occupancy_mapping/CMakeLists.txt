@@ -83,20 +83,25 @@ include_directories(
 # add_library(occupancy_mapping
 #   src/${PROJECT_NAME}/occupancy_mapping.cpp
 # )
-add_library(Cartography
- 	src/Cartography.cpp
-)
+#add_library(Cartography
+# 	src/Cartography.cpp
+#)
 
-add_library(DME
- 	src/DME.cpp
-)
+#add_library(DME
+# 	src/DME.cpp
+#)
 
-add_library(Cell
-	src/Cell.cpp
-)
+#add_library(Cell
+#	src/Cell.cpp
+#)
 
 ## Declare a cpp executable
-add_executable(occupancy_mapping src/occupancy_mapping.cpp)
+add_executable(occupancy_mapping src/occupancy_mapping.cpp
+src/Cartography.cpp
+src/Cartography.h
+src/DME.cpp
+src/DME.h
+)
 
 ## Add cmake target dependencies of the executable/library
 ## as an example, message headers may need to be generated before nodes
@@ -104,20 +109,20 @@ add_executable(occupancy_mapping src/occupancy_mapping.cpp)
 
 ## Specify libraries to link a library or executable target against
 target_link_libraries(occupancy_mapping
-  ${catkin_LIBRARIES} Cell Cartography DME
+  ${catkin_LIBRARIES} ${OpenCV_LIBS}
 )
 
-target_link_libraries(Cell 
-  ${catkin_LIBRARIES}
-)
+#target_link_libraries(Cell 
+#  ${catkin_LIBRARIES}
+#)
 
-target_link_libraries(Cartography 
-  ${catkin_LIBRARIES} ${OpenCV_LIBS} 
-)
+#target_link_libraries(Cartography 
+#  ${catkin_LIBRARIES} ${OpenCV_LIBS} 
+#)
 
-target_link_libraries(DME
-  ${catkin_LIBRARIES} ${OpenCV_LIBS} 
-)
+#target_link_libraries(DME
+#  ${catkin_LIBRARIES} ${OpenCV_LIBS} 
+#)
 
 #############
 ## Install ##

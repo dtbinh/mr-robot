@@ -10,7 +10,7 @@
 #include <map>
 #include <math.h>
 
-#define nullptr 0;
+#define nullptr	0
 
 
 // Stores the block matrix row/column for easier access
