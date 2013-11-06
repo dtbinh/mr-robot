@@ -42,8 +42,8 @@ struct BlockMatrixData
 	}
 };
 
-DME::DME(ros::NodeHandle &n, double dCellSize, unsigned int uiCellSize):
-	m_ImageTransport(n), m_dCellSize(dCellSize), m_uiCellSize(uiCellSize),
+DME::DME(double dCellSize, unsigned int uiCellSize):
+	m_dCellSize(dCellSize), m_uiCellSize(uiCellSize),
 	m_MinCellRow(INT_MAX), m_MaxCellRow(INT_MIN),
 	m_MinCellColumn(INT_MAX), m_MaxCellColumn(INT_MIN),
 	m_pFinalMatrix(nullptr),
@@ -51,7 +51,6 @@ DME::DME(ros::NodeHandle &n, double dCellSize, unsigned int uiCellSize):
 	m_OldMaxCellRow(0), m_OldMinCellRow(0),
 	m_OldMaxCellColumn(0), m_OldMinCellColumn(0)
 {
-	m_ImagePublisher = m_ImageTransport.advertise("image",1);
 }
 
 DME::~DME()
@@ -64,7 +63,7 @@ DME::~DME()
 		delete m_pFinalVarianceMatrix;
 }
 
-void DME::PublishImage()
+void DME::PublishToFile()
 {
 	if(m_MinCellRow == INT_MAX || m_MaxCellRow == INT_MIN || m_MinCellColumn == INT_MAX || m_MaxCellColumn == INT_MIN)
 		return;
@@ -111,7 +110,8 @@ void DME::PublishImage()
 			}
 		}
 	}
-	std::ofstream out("DME.txt", std::ios_base::ate);
+	std::ofstream out("/tmp/DME.txt", std::ios_base::ate);
+	ROS_INFO("Writing out data");
 	for(int i = 0; i < numRows; i++)
 	{
 		for(int j = 0; j < numColumns; j++)
@@ -121,7 +121,7 @@ void DME::PublishImage()
 }
 
 // Squared exponential kernel function
-static float Covariance(float u, float v, float sigmaU, float sigmaV))
+static float Covariance(float u, float v, float sigmaU, float sigmaV)
 {
 	return sigmaU*sigmaV*exp(-(u-v)*(u-v)/(2*TAU*TAU));
 }
@@ -136,8 +136,10 @@ static float Mean(float newValue, float previousMean, int numMeasurements)
 void DME::Update(double x, double y, double data)
 {
 	int i, j;
-	i = ceil(double(x)/m_dCellSize);
-	j = ceil(double(y)/m_dCellSize);
+	i = floor(double(x)/m_dCellSize);
+	j = floor(double(y)/m_dCellSize);
+
+	ROS_INFO("%d %d %d", m_MaxCellRow, i, j);
 
 	m_MaxCellRow = std::max(m_MaxCellRow, i);
 	m_MinCellRow = std::min(m_MinCellRow, i);
