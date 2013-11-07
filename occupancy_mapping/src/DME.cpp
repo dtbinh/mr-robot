@@ -111,7 +111,6 @@ void DME::PublishToFile()
 		}
 	}
 	std::ofstream out("/tmp/DME.txt", std::ios_base::ate);
-	ROS_INFO("Writing out data");
 	for(int i = 0; i < numRows; i++)
 	{
 		for(int j = 0; j < numColumns; j++)
@@ -206,4 +205,8 @@ void DME::Update(double x, double y, double data)
 
 cv::Mat* DME::getMat(){
 	return this->m_pFinalMatrix;
+}
+
+cv::Mat* DME::getVarMat(){
+	return this->m_pFinalVarianceMatrix;
 }

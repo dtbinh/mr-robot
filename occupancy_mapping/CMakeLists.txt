@@ -96,7 +96,8 @@ include_directories(
 #)
 
 ## Declare a cpp executable
-add_executable(occupancy_mapping src/occupancy_mapping.cpp
+add_executable(occupancy_mapping 
+src/occupancy_mapping.cpp
 src/Cartography.cpp
 src/Cartography.h
 src/DME.cpp
