@@ -12,12 +12,13 @@
       <param name="step_function_parameter" value="2.0" />
 	 <param name="alpha" value="9.0" />
 	 <param name="beta" value="2.0" />
-	 <param name="z_threshold" value="0.1" />
+	 <param name="z_threshold" value="0.01" />
     
       <remap from="/occupancy_mapping/scans" to="/vrep/depthSensor"/>
   </node>
+  <!--
     <node respawn="true" pkg="joy"
-        type="joy_node" name="joy" >
-        
+        type="joy_node" name="joy" >  
     </node>
+    -->
 </launch>

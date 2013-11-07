@@ -209,7 +209,6 @@ protected:
 		 * ==========================
 		 */
 
-
 		/*
 		 * ==========================
 		 * Mapping
@@ -260,7 +259,7 @@ protected:
 				UpdateCartographAndDME(x, y, z, outlierAltState);
 		}
 
-		pcl_pub_.publish(testPC);
+//		pcl_pub_.publish(testPC);
 		// Publish the results
 		m_pCartography->PublishImage();
 		m_pDME->PublishToFile();
@@ -276,21 +275,19 @@ protected:
 		 * SVM
 		 * ==========================
 		 */
-
 		obstaclePC.clear();
-
-		// TODO
-		cv::Mat inputMat;
+		cv::Mat inputMat(2,1,CV_32FC1);
 		if(isSVMOn){
 			for (int i=0;i<n;++i){
 				inputMat.at<float>(0,0) = worldPC[pidx[i]].z;
+				inputMat.at<float>(1,1) = 0.01; // Test
 				float result = svm.predict(inputMat);
 				if(result == -1){
-					ROS_INFO("%f",result);
+					obstaclePC.push_back(worldPC[pidx[i]]);
 				}
-				obstaclePC.push_back(worldPC[pidx[i]]);
+
 			}
-			// Publish the point cloud
+			// Publish the points which belong to obstacles
 			pcl_pub_.publish(obstaclePC);
 		}
 		/*
@@ -320,7 +317,7 @@ protected:
 		    varMat.col(0).copyTo(trainingData.col(1));
 		    // Convert labels
 		    cv::Mat labels(cartoMat.rows,cartoMat.cols,CV_32FC1);
-		    // Map log odd values to labels
+		    // Set label values
 		    ROS_INFO("%d",labels.rows);
 		    for(int i=0;i<labels.rows;++i){
 		    	float label;
