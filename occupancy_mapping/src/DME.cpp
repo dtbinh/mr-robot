@@ -199,7 +199,8 @@ void DME::Update(double x, double y, double data)
 		fHeight = data;
 	else
 		fHeight = Mean(data,fHeight,numMeasurements)+(SIGMA_2/fVariance)*fCorrelationCoefficient*(data-fHeight);
-	fVariance = SIGMA_2*(1-fCorrelationCoefficient*fCorrelationCoefficient);
+	//fVariance = SIGMA_2*(1-fCorrelationCoefficient*fCorrelationCoefficient);
+	fVariance = 1/(fVariance*fVariance+numMeasurements/SIGMA_2);
 	numMeasurements = std::min(numMeasurements+1,MAX_NUM_MEASURES);
 }
 
