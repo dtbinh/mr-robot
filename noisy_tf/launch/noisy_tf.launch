@@ -1,0 +1,10 @@
+<launch>
+
+  <node pkg="noisy_tf" type="noisy_tf.py" name="noisy_tf" output="screen">
+      launch-prefix="xterm -e gdb --args"
+      <param name="from_frame" value="/world" />
+      <param name="to_frame" value="/noisy_world" />
+      <param name="angular_noise_deg" value="3.0" />
+      <param name="position_noise_m" value="0.3" />
+  </node>
+</launch>
