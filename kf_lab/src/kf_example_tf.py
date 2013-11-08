@@ -42,6 +42,32 @@ class KFExample:
             [0,1],
             [0,0],
             [0,0]])
+        
+        
+        #STATE
+        X=[x y x_v y_v]
+        deltaT = 1
+        X_
+        A=numpy.mat([
+            [1,0, deltaT, 0],
+            [0,1, 0, deltaT],
+            [0,0,1,0],
+            [0,0,0,1]])
+        Q = numpy.mat([0.5, 0, 0, 0],
+            [0, 0.5, 0, 0],
+            [0, 0, 0, 0],
+            [0, 0, 0, 0]])
+        H = numpy.zeros(2,4)
+        H(1,1) = 1
+        H(2,2) = 1
+        P_ = A*P*A.T()+Q
+        # Update the Kalman Gain
+        K = P_*H.T()/inv((H*P_*H.T()+R))
+        # Update the a posteriori state
+        X = X_ + K*(Z-H*X_)
+        # Update P
+        P = (eye(4)-K*H)*P_
+    
         self.state = F * Z
     
         # Now publish the result
