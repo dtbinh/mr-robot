@@ -6,6 +6,7 @@ from sensor_msgs.msg import JointState
 import tf
 from tf.transformations import euler_from_quaternion
 import numpy
+import math
 
 
 class KFExample:
@@ -43,23 +44,30 @@ class KFExample:
             [0, 1, 0, self.deltaT],
             [0, 0, 1, 0],
             [0, 0, 0, 1]])
+	
+	U=self.linearVelocity # TODO How to retrieve that ?
+	k= # TODO parameter to update the predicted velocity with the input
+	theta=atan(Z[1,3]/Z[1,4])
+
+	B = numpy.vstack([0.0, 0.0, k*cos(theta), k*sin(theta)])
+
         Q = numpy.mat([
-            [0, 0, 0, 0],
-            [0, 0, 0, 0],
-            [0, 0, 0, 0],
-            [0, 0, 0, 0]])
+            [var, 0, 0, 0],
+            [0, var, 0, 0],
+            [0, 0, var, 0],
+            [0, 0, 0, var]])
         R = numpy.mat([
             [var, 0, 0, 0],
             [0, var, 0, 0],
-            [0, 0, 0, 0],
-            [0, 0, 0, 0]])
+            [0, 0, var, 0],
+            [0, 0, 0, var]])
         P_ = numpy.zeros((2,2))
         # Prediction stage
         I = numpy.eye(4)
         self.state = I * self.state
         
         X_ = numpy.zeros((4,1))
-        X_ = A * self.state
+        X_ = A * self.state + B * U
 
         P_ = A*self.P*A.T()+Q
         # Update stage
