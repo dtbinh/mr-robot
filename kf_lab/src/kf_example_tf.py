@@ -26,16 +26,42 @@ class KFExample:
         self.array.layout.dim = [MultiArrayDimension('data',4,4)]
         self.array.data = [0.0] * 4
 
+        # Defines
+        self.deltaT = 1/5 # deltaT = 1/rospy.rate(in hz)
+        self.P = numpy.eye(4) # initial P_0
+
         # State is x, y, vx, vy
         self.state = numpy.vstack([0.0, 0.0, 0.0, 0.0])
 
     # Filter measurement Z = numpy.vstack([x,y])
     def filter(self,Z):
         # Implement kalman filter here
+        deltaT = 1 # TODO What is the value of deltaT? 
+        var = self.position_stddev**2
+        A = numpy.mat([
+            [1, 0, self.deltaT, 0],
+            [0, 1, 0, self.deltaT],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1]])
+        Q = numpy.mat([
+            [0, 0, 0, 0],
+            [0, 0, 0, 0],
+            [0, 0, 0, 0],
+            [0, 0, 0, 0]])
+        R = numpy.mat([
+            [var, 0, 0, 0],
+            [0, var, 0, 0],
+            [0, 0, 0, 0],
+            [0, 0, 0, 0]])
+        P_ = numpy.zeros((2,2))
         # Prediction stage
         I = numpy.eye(4)
         self.state = I * self.state
+        
+        X_ = numpy.zeros((4,1))
+        X_ = A * self.state
 
+        P_ = A*self.P*A.T()+Q
         # Update stage
         F = numpy.mat([
             [1,0],
@@ -43,39 +69,28 @@ class KFExample:
             [0,0],
             [0,0]])
         
-        
-        #STATE
-        X=[x y x_v y_v]
-        deltaT = 1
-        X_
-        A=numpy.mat([
-            [1,0, deltaT, 0],
-            [0,1, 0, deltaT],
-            [0,0,1,0],
-            [0,0,0,1]])
-        Q = numpy.mat([0.5, 0, 0, 0],
-            [0, 0.5, 0, 0],
-            [0, 0, 0, 0],
-            [0, 0, 0, 0]])
-        H = numpy.zeros(2,4)
-        H(1,1) = 1
-        H(2,2) = 1
-        P_ = A*P*A.T()+Q
+        # Measurement Update
+        H = numpy.zeros((2,4))
+        K = numpy.zeros((4,2))
+        H[0,0] = 1
+        H[1,1] = 1
         # Update the Kalman Gain
-        K = P_*H.T()/inv((H*P_*H.T()+R))
+        T = H*P_*H.T() + R
+        K = P_*H.T()/numpy.linalg.inv(T)
         # Update the a posteriori state
         X = X_ + K*(Z-H*X_)
         # Update P
-        P = (eye(4)-K*H)*P_
-    
-        self.state = F * Z
+        self.P = (numpy.eye(4)-K*H)*P_
+
+        # self.state = F*Z
+        self.state = X
     
         # Now publish the result
         self.array.data = [self.state[i] for i in range(4)]
         self.pub.publish(self.array)
 
     def run(self):
-        rate = rospy.Rate(5)
+        rate = rospy.Rate(5) # 5hz
         # Required for TF to initialise
         rospy.sleep(1.0)
         self.pub = rospy.Publisher("~state",Float64MultiArray)
