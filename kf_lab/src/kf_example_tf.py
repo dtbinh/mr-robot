@@ -46,7 +46,7 @@ class KFExample:
             [0, 0, 0, 1]])
 	
 	U=self.linearVelocity # TODO How to retrieve that ?
-	k= # TODO parameter to update the predicted velocity with the input
+	k=0.004 # TODO parameter to update the predicted velocity with the input
 	theta=atan(Z[1,3]/Z[1,4])
 
 	B = numpy.vstack([0.0, 0.0, k*cos(theta), k*sin(theta)])
@@ -64,18 +64,13 @@ class KFExample:
         P_ = numpy.zeros((2,2))
         # Prediction stage
         I = numpy.eye(4)
-        self.state = I * self.state
         
         X_ = numpy.zeros((4,1))
         X_ = A * self.state + B * U
 
         P_ = A*self.P*A.T()+Q
+		
         # Update stage
-        F = numpy.mat([
-            [1,0],
-            [0,1],
-            [0,0],
-            [0,0]])
         
         # Measurement Update
         H = numpy.zeros((2,4))
@@ -90,7 +85,7 @@ class KFExample:
         # Update P
         self.P = (numpy.eye(4)-K*H)*P_
 
-        # self.state = F*Z
+        # Update self.state
         self.state = X
     
         # Now publish the result

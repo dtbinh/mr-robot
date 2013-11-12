@@ -32,24 +32,73 @@ class KFExample:
 
     # joint = [Left Motor State, Right Motor State]
     def joint_cb(self, left, right):
+		t = rospy.Time.now()
+        self.listener.waitForTransform(self.pose_frame,self.ref_frame, t, rospy.Duration(1.0))
+        ((x,y,z),rot) = self.listener.lookupTransform(self.pose_frame,self.ref_frame, t)
+			
+		oldRot=sys.maxint
+		if oldRot==sys.maxint:
+			deltaTheta=0
+			oldRot=rot
+		else:
+			deltaTheta=rot-oldRot
+			oldRot=rot
+		
+		# http://docs.ros.org/api/sensor_msgs/html/msg/JointState.html
+		deltaThetaL=left.velocity
+		deltaThetaR=right.velocity
+		
         # Implement kalman filter here
         # Prediction stage
-        I = numpy.eye(4)
-        self.state = I * self.state
+		var = self.position_stddev**2
+        A = numpy.eye(5)
+			
+        I = numpy.eye(5)
+		
+        Q = numpy.mat([
+            [var, 0, 0, 0],
+            [0, var, 0, 0],
+            [0, 0, var, 0],
+            [0, 0, 0, var]])
+        R = numpy.mat([
+            [var, 0, 0, 0],
+            [0, var, 0, 0],
+            [0, 0, var, 0],
+            [0, 0, 0, var]])
+        P_ = numpy.zeros((2,2))
+        
+        X_ = numpy.zeros((5,1))
+        X_ = A * self.state	# Let's ignore the input to simplify things
+
+        P_ = A*self.P*A.T()+Q
 
         # Update stage
         wheel_radius = 0.04
-        Z = numpy.vstack([left.velocity[0]*wheel_radius, 
-            right.velocity[0]*wheel_radius])
-        F = numpy.mat([
-            [0,0],
-            [0,0],
-            [1,0],
-            [0,1]])
-        self.state = F * Z
+        
+		# Measurement Update
+        H = numpy.zeros((2,5))
+        K = numpy.zeros((5,2))
+        H[0,0] = 1/deltaThetaL
+        H[1,0] = 1/deltaThetaR
+		H[0,2] = -(2*self.state[0]+wheel_radius*deltaTheta)/(4*deltaThetaL*deltaThetaL)
+		H[1,3] = (2*self.state[0]-wheel_radius*deltaTheta)/(4*deltaThetaR*deltaThetaR)
+		H[0,4] = (2*self.state[0]-wheel_radius*deltaTheta)/(4*deltaThetaR*deltaThetaR)
+		H[1,4] = wheel_radius/(2*deltaThetaL)
+		H[2,4] = -wheel_radius/(2*deltaThetaR)
+		
+        # Update the Kalman Gain
+        T = H*P_*H.T() + R
+        K = P_*H.T()/numpy.linalg.inv(T)
+        # Update the a posteriori state
+        X = X_ + K*(Z-H*X_)
+        # Update P
+        self.P = (numpy.eye(4)-K*H)*P_
+
+        # Update self.state
+		self.state = X
     
         # Now publish the result
-        self.array.data = [self.state[i] for i in range(4)]
+        self.array.data = [self.state[i] for i in range(5)]
         self.pub.publish(self.array)
 
 
@@ -65,6 +114,7 @@ class KFExample:
         self.right_joint_sub = message_filters.Subscriber("/vrep/rightWheelEncoder", JointState)
         self.ts = message_filters.TimeSynchronizer([self.left_joint_sub,self.right_joint_sub], 10)
         self.ts.registerCallback(self.joint_cb)
+			
         # Now just wait...
         while not rospy.is_shutdown():
             rate.sleep()
