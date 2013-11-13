@@ -20,7 +20,7 @@
   </node>
 
   <node pkg="rqt_plot" type="rqt_plot" name="rqt_plot" output="screen"
-    args="/kf_tf/state/data[0],/kf_tf/state/data[1],/kf_sub/state/data[2],/kf_sub/state/data[3]">
+    args="/kf_tf/state/data[0],/kf_tf/state/data[1]">
   </node>
 
 </launch>

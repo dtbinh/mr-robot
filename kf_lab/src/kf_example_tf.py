@@ -20,7 +20,7 @@ class KFExample:
         self.ref_frame = rospy.get_param("~ref_frame",self.ref_frame)
         self.pose_frame = rospy.get_param("~pose_frame",self.pose_frame)
         self.position_stddev = rospy.get_param("~position_stddev_m",self.position_stddev)
-        rospy.loginfo("Starting KF Example" )
+        rospy.loginfo("Starting KF Example TF" )
         self.listener = tf.TransformListener()
         self.array = Float64MultiArray()
         self.array.layout = MultiArrayLayout()
@@ -33,25 +33,24 @@ class KFExample:
         self.deltaT = 1/5 # deltaT = 1/rospy.rate(in hz)
         self.P = numpy.eye(4) # initial P_0
         self.linearVelocity = 0
+        self.yaw = 0 # yaw
         # State is x, y, vx, vy
         self.state = numpy.vstack([0.0, 0.0, 0.0, 0.0])
 
     # Filter measurement Z = numpy.vstack([x,y])
-    def filter(self,Z):
+    def filter(self,Z):       
         # Implement kalman filter here
-        var = self.position_stddev**2
+        var = self.position_stddev ** 2
         A = numpy.mat([
             [1, 0, self.deltaT, 0],
             [0, 1, 0, self.deltaT],
             [0, 0, 1, 0],
-            [0, 0, 0, 1]])
-	
-    # Control
-	U = self.linearVelocity 
-	k = 0.004 # TODO parameter to update the predicted velocity with the input
-	theta = math.atan(Z[0,0]/Z[1,0])
-
-	B = numpy.vstack([0.0, 0.0, k*math.cos(theta), k*math.sin(theta)])
+            [0, 0, 0, 1]])	
+        # Control
+        U = self.linearVelocity 
+        theta = self.yaw
+        
+        B = numpy.vstack([0.0, 0.0, math.cos(theta), math.sin(theta)])
 
         Q = numpy.mat([
             [var, 0, 0, 0],
@@ -61,30 +60,30 @@ class KFExample:
         R = numpy.mat([
             [var, 0],
             [0, var]])
-        P_ = numpy.zeros((4,4))
+        P_ = numpy.zeros((4, 4))
         # Prediction stage
         I = numpy.eye(4)
         
-        X_ = numpy.zeros((4,1))
+        X_ = numpy.zeros((4, 1))
         X_ = A * self.state + B * U
-        #X = A * self.state
+        # X = A * self.state
 
-        P_ = A*self.P*A.T+Q
+        P_ = A * self.P * A.T + Q
 		
         # Update stage
         
         # Measurement Update
-        H = numpy.zeros((2,4))
-        K = numpy.zeros((4,2))
-        H[0,0] = 1
-        H[1,1] = 1
+        H = numpy.zeros((2, 4))
+        K = numpy.zeros((4, 2))
+        H[0, 0] = 1
+        H[1, 1] = 1
         # Update the Kalman Gain
-        T = H*P_*H.T + R
-        K = P_*H.T*numpy.linalg.inv(T)
+        T = H * P_ * H.T + R
+        K = P_ * H.T * numpy.linalg.inv(T)
         # Update the a posteriori state
-        X = X_ + K*(Z-H.dot(X_))
+        X = X_ + K * (Z - H.dot(X_))
         # Update P
-        self.P = (numpy.eye(4)-K*H)*P_
+        self.P = (numpy.eye(4) - K * H) * P_
         # Update self.state
         self.state = X
         # Now publish the result
@@ -105,6 +104,7 @@ class KFExample:
             self.listener.waitForTransform(self.pose_frame,self.ref_frame, t, rospy.Duration(1.0))
             ((x,y,z),rot) = self.listener.lookupTransform(self.pose_frame,self.ref_frame, t)
             euler = euler_from_quaternion(rot)
+            self.yaw = euler[2]
             Z = numpy.vstack([x,y])
             self.filter(Z)
             rate.sleep()
