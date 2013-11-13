@@ -101,8 +101,6 @@ class KFExample:
         self.array.data = [self.state[i] for i in range(5)]
         self.pub.publish(self.array)
 
-
-
     def run(self):
         timeout = True
         rate = rospy.Rate(2)
