@@ -3,6 +3,7 @@ import roslib; roslib.load_manifest('kf_lab')
 import rospy
 from std_msgs.msg import Float64MultiArray, MultiArrayDimension, MultiArrayLayout
 from sensor_msgs.msg import JointState
+from geometry_msgs.msg import TwistStamped
 import tf
 from tf.transformations import euler_from_quaternion
 import numpy
@@ -26,21 +27,19 @@ class KFExample:
         self.array = Float64MultiArray()
         self.array.layout = MultiArrayLayout()
         self.array.layout.data_offset = 0
-        self.array.layout.dim = [MultiArrayDimension('data', 4, 4)]
-        self.array.data = [0.0] * 4
+        self.array.layout.dim = [MultiArrayDimension('data', 5, 5)]
+        self.array.data = [0.0] * 5
 
         self.yaw = 0
         self.P = numpy.eye(5) # initial P_0
-        self.deltaT = 1/2
+        self.deltaT = 0.5
+        self.linearVelocity = 0
         # State is x, y, vx, vy
         self.state = numpy.vstack([0.0, 0.0, 0.0, 0.0, 0.0])
     
-
-
     # joint = [Left Motor State, Right Motor State]
     def joint_cb(self, left, right):
         # TODO z vector
-        
         rot = self.yaw
         oldRot = sys.maxint
         if oldRot == sys.maxint:
@@ -50,10 +49,20 @@ class KFExample:
             deltaTheta = rot - oldRot
             oldRot = rot
 		
+        
         # http://docs.ros.org/api/sensor_msgs/html/msg/JointState.html
-        deltaThetaL = left.velocity[0]
-        deltaThetaR = right.velocity[0]
+        deltaThetaL = left.velocity[0]*self.deltaT
+        deltaThetaR = right.velocity[0]*self.deltaT
 		
+        print left.velocity[0]*0.5
+        if deltaThetaL == 0:
+            deltaThetaL = 1
+        if deltaThetaR == 0:
+            deltaThetaR = 1
+        
+        if deltaTheta == 0:
+            deltaTheta = 1
+            
         # Implement kalman filter here
         # Prediction stage
         var = self.position_stddev ** 2
@@ -78,18 +87,21 @@ class KFExample:
 
         # Update stage
         wheel_radius = 0.04
-        leftWheel_radius = (2*deltaThetaL + deltaThetaL)/(2*deltaTheta)
-        rightWheel_radius = (2*deltaThetaR - deltaThetaR) 
+        
+        L = 0.2
+        leftWheel_radius = (2*deltaThetaL + deltaThetaL*L)/(2*deltaTheta)
+        rightWheel_radius = (2*deltaThetaR - deltaThetaR*L)/(2*deltaTheta) 
+        Z = numpy.vstack([leftWheel_radius,rightWheel_radius])
         
 		# Measurement Update
         H = numpy.zeros((2, 5))
         K = numpy.zeros((5, 2))
         H[0, 0] = 1 / deltaThetaL
         H[1, 0] = 1 / deltaThetaR
-        H[0, 2] = -(2 * self.state[0] + wheel_radius * deltaTheta) / (4 * deltaThetaL * deltaThetaL)
-        H[1, 3] = (2 * self.state[0] - wheel_radius * deltaTheta) / (4 * deltaThetaR * deltaThetaR)
-        H[0, 4] = wheel_radius / (2 * deltaThetaL)
-        H[1, 4] = -wheel_radius / (2 * deltaThetaR)
+        H[0, 2] = -(2 * self.linearVelocity + L * deltaTheta) / (4 * deltaThetaL * deltaThetaL)
+        H[1, 3] = (2 * self.linearVelocity - L * deltaTheta) / (4 * deltaThetaR * deltaThetaR)
+        H[0, 4] = L / (2 * deltaThetaL)
+        H[1, 4] = -L / (2 * deltaThetaR)
 		
         # Update the Kalman Gain
         T = H * P_ * H.T + R
@@ -101,12 +113,14 @@ class KFExample:
     
         # Update self.state
         self.state = X
-        
         # Now publish the result
-        self.array.data = [self.state[i] for i in range(5)]
-        print self.array
+        # self.array.data = [self.state[i] for i in range(5)]
+        self.array.data = [leftWheel_radius,rightWheel_radius]
         self.pub.publish(self.array)
-        
+    
+    def callback(self,data):
+        self.linearVelocity = data.twist.linear.x
+    
     def run(self):
         timeout = True
         rate = rospy.Rate(2)
@@ -114,6 +128,7 @@ class KFExample:
         # Now subscribe to the wheel encoder, but create a time synchronizer to
         # receive left and right at the same time
         self.pub = rospy.Publisher("~state", Float64MultiArray)
+        self.sub = rospy.Subscriber("/vrep/twistStatus", TwistStamped, self.callback)
         self.left_joint_sub = message_filters.Subscriber("/vrep/leftWheelEncoder", JointState)
         self.right_joint_sub = message_filters.Subscriber("/vrep/rightWheelEncoder", JointState)
         self.ts = message_filters.TimeSynchronizer([self.left_joint_sub, self.right_joint_sub], 10)
@@ -122,8 +137,8 @@ class KFExample:
         # Now just wait...
         while not rospy.is_shutdown():
             t = rospy.Time.now()
-            self.listener.waitForTransform(self.pose_frame, self.ref_frame, t, rospy.Duration(1.0))
-            ((x, y, z), rot) = self.listener.lookupTransform(self.pose_frame, self.ref_frame, t)
+            self.listener.waitForTransform(self.ref_frame, self.pose_frame, t, rospy.Duration(1.0))
+            ((x, y, z), rot) = self.listener.lookupTransform(self.ref_frame, self.pose_frame, t)
             euler = euler_from_quaternion(rot)
             self.yaw = euler[2]
             rate.sleep()

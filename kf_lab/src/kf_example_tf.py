@@ -30,7 +30,7 @@ class KFExample:
         
         #rospy.Subscriber("/vrep/twistStatus/Twist", Twist, self.callback)
         # Defines
-        self.deltaT = 1/5 # deltaT = 1/rospy.rate(in hz)
+        self.deltaT = 0.2 # deltaT = 1/rospy.rate(in hz)
         self.P = numpy.eye(4) # initial P_0
         self.linearVelocity = 0
         self.yaw = 0 # yaw
@@ -49,7 +49,6 @@ class KFExample:
         # Control
         U = self.linearVelocity 
         theta = self.yaw
-        
         B = numpy.vstack([0.0, 0.0, math.cos(theta), math.sin(theta)])
 
         Q = numpy.mat([
@@ -65,8 +64,8 @@ class KFExample:
         I = numpy.eye(4)
         
         X_ = numpy.zeros((4, 1))
-        X_ = A * self.state + B * U
-        # X = A * self.state
+        # X_ = A * self.state + B * U
+        X = A * self.state
 
         P_ = A * self.P * A.T + Q
 		
@@ -101,8 +100,8 @@ class KFExample:
         self.pub = rospy.Publisher("~state",Float64MultiArray)
         while not rospy.is_shutdown():
             t = rospy.Time.now()
-            self.listener.waitForTransform(self.pose_frame,self.ref_frame, t, rospy.Duration(1.0))
-            ((x,y,z),rot) = self.listener.lookupTransform(self.pose_frame,self.ref_frame, t)
+            self.listener.waitForTransform(self.ref_frame, self.pose_frame, t, rospy.Duration(1.0))
+            ((x,y,z),rot) = self.listener.lookupTransform(self.ref_frame, self.pose_frame, t)
             euler = euler_from_quaternion(rot)
             self.yaw = euler[2]
             Z = numpy.vstack([x,y])

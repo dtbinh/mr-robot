@@ -3,8 +3,8 @@
   <node pkg="noisy_tf" type="noisy_tf.py" name="noisy_tf" output="screen">
       <param name="from_frame" value="/world" />
       <param name="to_frame" value="/noisy_world" />
-      <param name="angular_noise_deg" value="3.0" />
-      <param name="position_noise_m" value="0.3" />
+      <param name="angular_noise_deg" value="1.0" />
+      <param name="position_noise_m" value="0.1" />
   </node>
 
   <node pkg="kf_lab" type="kf_example_sub.py" name="kf_sub" output="screen">
@@ -20,7 +20,7 @@
   </node>
 
   <node pkg="rqt_plot" type="rqt_plot" name="rqt_plot" output="screen"
-    args="/kf_tf/state/data[0],/kf_tf/state/data[1]">
+    args="/kf_tf/state/data[0],/kf_tf/state/data[1],/kf_sub/state/data[2],/kf_sub/state/data[3]">
   </node>
 
 </launch>
