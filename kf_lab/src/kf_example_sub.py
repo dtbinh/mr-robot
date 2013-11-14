@@ -54,7 +54,6 @@ class KFExample:
         deltaThetaL = left.velocity[0]*self.deltaT
         deltaThetaR = right.velocity[0]*self.deltaT
 		
-        print left.velocity[0]*0.5
         if deltaThetaL == 0:
             deltaThetaL = 1
         if deltaThetaR == 0:
