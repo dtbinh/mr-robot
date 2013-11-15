@@ -18,7 +18,7 @@
 
 #include "Cartography.h"
 #include "Cell.h"
-#include "DME.h"
+#include "DEM.h"
 
 const double PI=3.141592653589793238462;
 static const char * svm_output = "/tmp/svm_model.xml";
@@ -53,7 +53,7 @@ protected:
 	pcl::PointCloud<pcl::PointXYZ> testPC;
 
 	Cartography *m_pCartography;
-	DME *m_pDME;
+	DEM *m_pDME;
 
 	// SVM
 	CvSVM svm;
@@ -400,7 +400,7 @@ public:
 		marker_pub_ = nh_.advertise<visualization_msgs::Marker>("floor_plane", 1);
 		// Mapping classes
 		m_pCartography = new Cartography(nh_, 1.0, 10);
-		m_pDME = new DME(1.0, 10);
+		m_pDME = new DEM(1.0, 10);
 
 		// Point Cloud
 		obstaclePC.header.frame_id = world_frame_;

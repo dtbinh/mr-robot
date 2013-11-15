@@ -1,0 +1,19 @@
+<launch>
+
+  <node pkg="particle_filter_base" type="particle_filter" name="pf" output="screen"
+      launch-prefix="xterm -e gdb --args">
+      <param name="base_frame" value="/bubbleRob" />
+      <param name="num_particles" value="100" />
+      <param name="max_range" value="5.0" />
+      <param name="initial_spread" value="1.0" />
+
+      <param name="dem_x_orig" value="0.0" />
+      <param name="dem_y_orig" value="0.0" />
+      <param name="dem_scale" value="1.0" />
+
+      <remap from="/pf/scans" to="/vrep/depthSensor"/>
+      <remap from="/pf/dem" to="/dem/dem"/>
+      <remap from="/pf/dem_cov" to="/dem/dem_cov"/>
+  </node>
+
+</launch>
