@@ -42,7 +42,8 @@ struct BlockMatrixData
 	}
 };
 
-DEM::DEM(double dCellSize, unsigned int uiCellSize):
+DEM::DEM(double dCellSize, unsigned int uiCellSize, ros::NodeHandle &nh):
+	m_ImageTransport(nh),
 	m_dCellSize(dCellSize), m_uiCellSize(uiCellSize),
 	m_MinCellRow(INT_MAX), m_MaxCellRow(INT_MIN),
 	m_MinCellColumn(INT_MAX), m_MaxCellColumn(INT_MIN),
@@ -51,6 +52,8 @@ DEM::DEM(double dCellSize, unsigned int uiCellSize):
 	m_OldMaxCellRow(0), m_OldMinCellRow(0),
 	m_OldMaxCellColumn(0), m_OldMinCellColumn(0)
 {
+	m_DEMPublisher = m_ImageTransport.advertise("dem",1);
+	m_DEMCovPublisher = m_ImageTransport.advertise("dem_covariance",1);
 }
 
 DEM::~DEM()
@@ -117,6 +120,94 @@ void DEM::PublishToFile()
 			out << double(i)*m_dCellSize << " " << double(j)*m_dCellSize << " " << m_pFinalMatrix->at<float>(i, j) << " " << m_pFinalVarianceMatrix->at<float>(i, j) << std::endl;
 	}
 	out.close();
+}
+
+void DEM::PublishToImage(){
+	if(m_MinCellRow == INT_MAX || m_MaxCellRow == INT_MIN || m_MinCellColumn == INT_MAX || m_MaxCellColumn == INT_MIN)
+		return;
+
+	int numRows = (m_MaxCellRow-m_MinCellRow+1)*m_uiCellSize;
+	int numColumns = (m_MaxCellColumn-m_MinCellColumn+1)*m_uiCellSize;
+
+	if(((m_MinCellColumn != m_OldMinCellColumn) || (m_MaxCellRow != m_OldMaxCellRow) || (m_MinCellRow != m_OldMinCellRow) || (m_MaxCellColumn != m_OldMaxCellColumn)))
+	{
+		m_OldMaxCellRow = m_MaxCellRow;
+		m_OldMinCellColumn = m_MinCellColumn;
+		m_OldMinCellRow = m_MinCellRow;
+		m_OldMaxCellColumn = m_MaxCellColumn;
+
+		if(m_pFinalMatrix)
+			delete m_pFinalMatrix;
+		if(m_pFinalVarianceMatrix)
+			delete m_pFinalVarianceMatrix;
+		m_pFinalMatrix =  new cv::Mat(numRows,numColumns,CV_32F);
+		m_pFinalVarianceMatrix =  new cv::Mat(numRows,numColumns,CV_32F);
+		for(int i = 0; i < numRows; i++)
+		{
+			for(int j = 0; j < numColumns; j++)
+			{
+				m_pFinalMatrix->at<float>(i, j) = 0.0f;
+				m_pFinalVarianceMatrix->at<float>(i, j) = 0.0f;
+			}
+		}
+	}
+
+	// Copy the data from m_CellMap
+	// Note that the image has the Y axis inverted so we invert the rows in the final matrix
+	// to restore the correct orientation
+	for(auto it = m_CellMap.begin(); it != m_CellMap.end(); it++)
+	{
+		for(int i = 0; i < m_uiCellSize; i++)
+		{
+			for(int j = 0; j < m_uiCellSize; j++)
+			{
+				int m = int(it->second->m-m_MinCellRow)*m_uiCellSize+i;
+				int n = int(it->second->n-m_MinCellColumn)*m_uiCellSize+j;
+				m_pFinalMatrix->at<float>(m, n) = it->second->pHeightMatrix->at<float>(i, j);
+				m_pFinalVarianceMatrix->at<float>(m, n) = it->second->pVarianceMatrix->at<float>(i, j);
+			}
+		}
+	}
+
+	auto DEMImage = cv::Mat(numRows,numColumns,CV_32S);
+	auto DEMCovImage = cv::Mat(numRows, numColumns, CV_32S);
+	// Prepare the colors before publishing the cvMat as an image
+	for(int i = 0; i < numRows; i++)
+	{
+		for(int j = 0; j < numColumns; j++)
+		{
+			// Compute the probability associated with the log odd
+			double p = 1.0f-1.0f/(1.0f+exp(m_pFinalMatrix->at<float>(i, j)));
+			// p close to 1 means that the certainty that the cell is traversable is very high.
+			// We return a color close to 255 (white) for such values.
+			//ROS_INFO("%f",m_pFinalMatrix->at<float>(i, j));
+			int color=int(p*255.0);
+			//ROS_INFO("%f %d", p, color);
+			int finalColor = color;
+			finalColor |= (color << 8);
+			finalColor |= (color << 16);
+			DEMImage.at<int>(i, j) =  finalColor;
+
+			// Covariance image
+			double pCov = 1.0f-1.0f/(1.0f+exp(m_pFinalVarianceMatrix->at<float>(i, j)));
+			int colorCov = int(p*255.0);
+			int finalColorCov = colorCov;
+			finalColorCov |= (color << 8);
+			finalColorCov |= (color << 16);
+			DEMCovImage.at<int>(i,j) = finalColorCov;
+		}
+	}
+
+	cv_bridge::CvImage out_msg;
+	out_msg.encoding = "rgba8";
+	out_msg.image    = DEMImage;
+
+	cv_bridge::CvImage out_msg_cov;
+	out_msg.encoding = "rgba8";
+	out_msg.image    = DEMCovImage;
+
+	m_DEMPublisher.publish(out_msg.toImageMsg());
+	m_DEMCovPublisher.publish(out_msg_cov.toImageMsg());
 }
 
 // Squared exponential kernel function

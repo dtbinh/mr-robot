@@ -19,6 +19,10 @@ struct BlockMatrixData;
 class DEM
 {
 protected:
+	image_transport::ImageTransport m_ImageTransport;
+	image_transport::Publisher m_DEMPublisher;
+	image_transport::Publisher m_DEMCovPublisher;
+
 	// Map = Cells. Cells = Fixed size matrices. Matrix elements = data about a world space square of dimension m_dCellSize.
 	std::map<int, BlockMatrixData*> m_CellMap;
 	// Concatenates data from the map of cells.
@@ -45,10 +49,11 @@ protected:
 
 public:
 	DEM(double dCellSize, unsigned int uiCellSize);
-
+	DEM(double dCellSize, unsigned int uiCellSize, ros::NodeHandle &nh);
 	~DEM();
 
 	void PublishToFile();
+	void PublishToImage();
 
 	void Update(double x, double y, double data);
 	inline double ConvertIndexToWorldCoord(int i)	{return (double(i)/m_uiCellSize)*m_dCellSize;}

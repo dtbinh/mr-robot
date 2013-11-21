@@ -67,13 +67,13 @@ namespace particle_filter_base {
         public:
             Particle(double _x, double _y, double _z) : x(_x), y(_y), z(_z), importance(0.0) {}
             // Some initialisation
-            Particle(double _x, double _y, double i) : x(_x), y(_y), z(_z), importance(i) {}
+//            Particle(double _x, double _y, double i) : x(_x), y(_y), z(_z), importance(i) {}
 
             // The prediction stage need to apply some control
 			// Input : linear velocity and angular velocity
             void applyControl(const geometry_msgs::Twist &twist, double deltaT) {
-				std::default_random_engine generator;
-				std::normal_distribution<double> distribution(0.0,0.1);
+//				std::default_random_engine generator;
+//				std::normal_distribution<double> distribution(0.0,0.1);
 				// We assume instant speed change
 				x += twist.linear.x*deltaT;
 				y += twist.linear.y*deltaT;
@@ -81,7 +81,7 @@ namespace particle_filter_base {
 
             // The observation stage need to update the particle importance
 			// TODO
-            void updateImportance(const std::vector<std::pair<double,double> &vPointCoordinatesInPointCloud) {
+            void updateImportance(const std::vector<std::pair<double,double>> &vPointCoordinatesInPointCloud) {
             }
 
             double getImportance() const {
@@ -118,10 +118,10 @@ namespace particle_filter_base {
 						particles[squareSide*i+j].setImportance(1.0/particles.size());
 					}
 				}
-				for (size_t i = squareSide*squareSide; i < num_particles; i++) {
-					particles[squareSide*i+j] = Particle(double(mapSize)*random()/(double)RAND_MAX), double(mapSize)*random()/(double)RAND_MAX), 0.0, x + spread*(-1.0 + 2.0*random()/(double)RAND_MAX));
-					particles[squareSide*i+j].setImportance(1.0/particles.size());
-				}
+//				for (size_t i = squareSide*squareSide; i < num_particles; i++) {
+//					particles[squareSide*i+j] = Particle(double(mapSize)*random()/(double)RAND_MAX), double(mapSize)*random()/(double)RAND_MAX), 0.0, x + spread*(-1.0 + 2.0*random()/(double)RAND_MAX));
+//					particles[squareSide*i+j].setImportance(1.0/particles.size());
+//				}
             }
 
 			void predict(const geometry_msgs::Twist &twist, double deltaT) {
@@ -130,7 +130,7 @@ namespace particle_filter_base {
                 }
             }
 
-            void update(const std::vector<std::pair<double,double> &vPointCoordinatesInPointCloud) {
+            void update(const std::vector<std::pair<double,double>> &vPointCoordinatesInPointCloud) {
                 for (size_t i = 0; i < particles.size(); i++) {
                     particles[i].updateImportance(vPointCoordinatesInPointCloud);
                 }
@@ -189,6 +189,8 @@ namespace particle_filter_base {
 			// Lame variable name...
 			int K_;
 			double tolerance_;
+			double m_dCellSize = 1.0;
+			double m_uiCellSize = 10;
 
             pcl::PointCloud<pcl::PointXYZ> lastpc_;
 
@@ -199,7 +201,6 @@ namespace particle_filter_base {
             cv::Mat dem, dem_cov;
             double dem_x_orig, dem_y_orig, dem_scale;
             ParticleFilter pf;
-            DEM* pDEM;
 
             bool demToWorld(const cv::Point2i & P, cv::Point2f & R) {
                 R = cv::Point2f(dem_x_orig + P.x*dem_scale,dem_y_orig + P.y*dem_scale);
@@ -217,11 +218,15 @@ namespace particle_filter_base {
             }
 
 			// Get a random index for the cloud point
-			static __forceinline size_t GetRandomIndex(unsigned long i)
+			static inline size_t GetRandomIndex(unsigned long i)
 			{
 				return std::min((rand() / (double) RAND_MAX) * i, (double) i - 1);
 			}
 
+			inline double ConvertIndexToWorldCoord(int i)
+			{
+				return (double(i)/m_uiCellSize)*m_dCellSize;
+			}
         protected: // ROS Callbacks
 			
 			void findInDEMCellWithTargetHeight(double z, double tolerance, std::pair<double, double> &output)
@@ -231,8 +236,8 @@ namespace particle_filter_base {
 				{
 					for(int j = 0; j < m_uiCellSize; j++)
 					{
-						if(fabs(dem.at<float>(m, n) - z) < tolerance)
-							vPointsWithHeightZ.push_back(std::make_pair(dem.ConvertIndexToWorldCoord(m), dem.ConvertIndexToWorldCoord(n)));
+						if(fabs(dem.at<float>(i, j) - z) < tolerance)
+							vPointsWithHeightZ.push_back(std::make_pair(ConvertIndexToWorldCoord(i), ConvertIndexToWorldCoord(j)));
 					}
 				}
 				// Choose a random point among the ones found ?
@@ -252,7 +257,7 @@ namespace particle_filter_base {
                 header.stamp = msg->header.stamp;
                 header.frame_id = base_frame_;
 
-				if(sDeltaTime == -INT_MAX)
+				if(sDeltaT == -INT_MAX)
 				{
 					sTimer.start();
 					sDeltaT = 0.0;
@@ -270,9 +275,10 @@ namespace particle_filter_base {
 					dem_cov_received = false;
 					// Take K points in the lastpc_
 					std::vector<double> vMeasurements;
-					for(int i=0; i<K_; ++i)
+					for(int i=0; i<K_; ++i){
 						// Maybe uniform sampling is not good enough for this part
-						vMeasurements.push_back(lastpc_[GetRandomIndex(lastpc_.size()].z);
+						vMeasurements.push_back(lastpc_[GetRandomIndex(lastpc_.size())].z);
+					}
 					std::vector<std::pair<double, double>> vPointCoordinatesInPointCloud;
 					for(int i=0; i<K_; ++i)
 					{
@@ -336,7 +342,6 @@ namespace particle_filter_base {
                 DEM_sub_ = it_.subscribe<ParticleFilterLocalisation>("dem",1, &ParticleFilterLocalisation::dem_callback,this,transport);
                 DEM_cov_sub_ = it_.subscribe<ParticleFilterLocalisation>("dem_covariance",1, &ParticleFilterLocalisation::dem_cov_callback,this,transport);
 
-                pDEM = new DEM(1.0, 10);
             }
 
     };
