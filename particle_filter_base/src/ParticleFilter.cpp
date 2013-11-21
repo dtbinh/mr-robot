@@ -26,6 +26,8 @@
 #include <sys/time.h>
 #include <random>
 
+static double mapSize_ = 10.0;
+
 class Timer {
 private:
 
@@ -59,15 +61,15 @@ namespace particle_filter_base {
 
     class Particle {
         protected:
-            // here some state
+            double importance;
+			 // here some state
     		double x;
     		double y;
-			double z;
-            double importance;
+
         public:
-            Particle(double _x, double _y, double _z) : x(_x), y(_y), z(_z), importance(0.0) {}
+            Particle(double _x, double _y) : x(_x), y(_y), importance(0.0) {}
             // Some initialisation
-            Particle(double _x, double _y, double i) : x(_x), y(_y), z(_z), importance(i) {}
+            Particle(double _x, double _y, double i) : x(_x), y(_y), importance(i) {}
 
             // The prediction stage need to apply some control
 			// Input : linear velocity and angular velocity
@@ -82,6 +84,13 @@ namespace particle_filter_base {
             // The observation stage need to update the particle importance
 			// TODO
             void updateImportance(const std::vector<std::pair<double,double> &vPointCoordinatesInPointCloud) {
+				for(auto it=vPointCoordinatesInPointCloud.begin(); it!=vPointCoordinatesInPointCloud.end(); ++it)
+				{
+					double deltaX = x-(*it).x;
+					double deltaY = y-(*it).y;
+					if(deltaX*deltaX+deltaY*deltaY<0.04)
+						importance *= 2;
+				}
             }
 
             double getImportance() const {
@@ -96,9 +105,19 @@ namespace particle_filter_base {
             void toPoseMessage(geometry_msgs::Pose & pose) {
                 pose.position.x = x;
                 pose.position.y = z;
-                pose.position.z = 0.0;
+                pose.position.z = importance;
                 pose.orientation = tf::createQuaternionMsgFromRollPitchYaw(0.0, 0.0, 0.0);
             }
+
+			double getX()	{return x;}
+			double getY()	{return y;}
+
+			static double distance2D(const Particle& p1, const Particle &p2)
+			{
+				double dx=p2.x-p1.x;
+				double dy=p2.y-p1.y;
+				return sqrt(dx*dx+dy*dy);
+			}
     };
 
     class ParticleFilter {
@@ -152,10 +171,29 @@ namespace particle_filter_base {
                 std::vector<Particle> new_particles(particles.size());
                 for (size_t i = 0; i < particles.size(); i++) {
                     double u = random() / (double)RAND_MAX;
-                    int j = (int)round(inv_cdf(u));
-					// Some interpolation would be nice. Otherwise we need to compensate with a large number of particles.
-                    new_particles[i] = particles[j];
-                    new_particles[j].setImportance(1.0/particles.size());
+                    double j = inv_cdf(u);
+					int j1 = int(j);
+					int j2 = j1+1;
+					// Linear interpolation
+					if(j2>=particles.size())
+					{
+						new_particles[i] = particles[j1];
+					}
+					else
+					{
+						if(Particle::distance2D(particles[j1], particle[j2]) > mapSize_/2)
+							new_particles[i] = particles[j1];
+						else	// This should be the most common case
+						{
+							double delta = j-double(j1);
+							double deltaX = particles[j2].getX()-particles[j1].getX();
+							double deltaY = particles[j2].getY()-particles[j1].getY();
+							double deltaI = particles[j2].getImportance()-particles[j1].getImportance();
+							new_particles[i] = Particle(particles[j1].getX()+deltaX*delta,
+								particles[j1].getY()+deltaY*delta,
+								particles[j1].getImportance()+deltaI*delta);
+						}
+					}
                 }
                 particles = new_particles;
             }
@@ -185,7 +223,6 @@ namespace particle_filter_base {
             double max_range_;
             int num_particles_;
             double initial_spread_;
-			double mapSize_;
 			// Lame variable name...
 			int K_;
 			double tolerance_;
