@@ -19,14 +19,19 @@
 #include <cv_bridge/cv_bridge.h>
 #include <image_transport/image_transport.h>
 #include <image_transport/transport_hints.h>
-#include "DEM.h"
-
 
 #include <stdlib.h>
 #include <sys/time.h>
 #include <random>
 
 static double mapSize_ = 10.0;
+static double dCellSize_ = 1.0;
+static unsigned int uiCellSize_ = 10;
+static double toleranceForDEMParsing = 0.05;
+static double sigma2 = 1.0;
+
+static std::default_random_engine generator;
+static std::normal_distribution<double> distribution(0.0,0.01);
 
 class Timer {
 private:
@@ -67,6 +72,7 @@ namespace particle_filter_base {
     		double y;
 
         public:
+    		Particle()	{}
             Particle(double _x, double _y) : x(_x), y(_y), importance(0.0) {}
             // Some initialisation
             Particle(double _x, double _y, double i) : x(_x), y(_y), importance(i) {}
@@ -74,23 +80,17 @@ namespace particle_filter_base {
             // The prediction stage need to apply some control
 			// Input : linear velocity and angular velocity
             void applyControl(const geometry_msgs::Twist &twist, double deltaT) {
-				std::default_random_engine generator;
-				std::normal_distribution<double> distribution(0.0,0.1);
 				// We assume instant speed change
-				x += twist.linear.x*deltaT;
-				y += twist.linear.y*deltaT;
+				x += twist.linear.x*deltaT + distribution(generator);
+				y += twist.linear.y*deltaT + distribution(generator);
             }
 
             // The observation stage need to update the particle importance
 			// TODO
-            void updateImportance(const std::vector<std::pair<double,double> &vPointCoordinatesInPointCloud) {
-				for(auto it=vPointCoordinatesInPointCloud.begin(); it!=vPointCoordinatesInPointCloud.end(); ++it)
-				{
-					double deltaX = x-(*it).x;
-					double deltaY = y-(*it).y;
-					if(deltaX*deltaX+deltaY*deltaY<0.04)
-						importance *= 2;
-				}
+            void updateImportance(const std::pair<double, double>  &vRobotPosition_fromMeasurements) {
+            	double xm = vRobotPosition_fromMeasurements.first;
+            	double ym = vRobotPosition_fromMeasurements.second;
+				importance = 1/(sqrt(2*M_PI*sigma2))*exp(-((x-xm)*(x-xm)+(y-ym)*(y-ym))/(2*sigma2));
             }
 
             double getImportance() const {
@@ -104,7 +104,7 @@ namespace particle_filter_base {
             // Convert the particle state to a ROS pose for display in RVIZ
             void toPoseMessage(geometry_msgs::Pose & pose) {
                 pose.position.x = x;
-                pose.position.y = z;
+                pose.position.y = y;
                 pose.position.z = importance;
                 pose.orientation = tf::createQuaternionMsgFromRollPitchYaw(0.0, 0.0, 0.0);
             }
@@ -132,15 +132,19 @@ namespace particle_filter_base {
 				int squareSide = sqrt(num_particles);	// The map is a square
 				// Choose a uniform initial distribution of points
 				for (size_t i = 0; i < squareSide; i++) {
-					for (size_t j = 0; j < squareSide; i++) {
-						particles[squareSide*i+j] = Particle(double(mapSize)*double(i)/double(squareSide), double(mapSize)*double(j)/double(squareSide), 0.0, x + spread*(-1.0 + 2.0*random()/(double)RAND_MAX));
+					for (size_t j = 0; j < squareSide; j++) {
+						particles[squareSide*i+j] = Particle(double(mapSize)*double(i)/double(squareSide),
+								double(mapSize)*double(j)/double(squareSide));
 						particles[squareSide*i+j].setImportance(1.0/particles.size());
 					}
 				}
 				for (size_t i = squareSide*squareSide; i < num_particles; i++) {
-					particles[squareSide*i+j] = Particle(double(mapSize)*random()/(double)RAND_MAX), double(mapSize)*random()/(double)RAND_MAX), 0.0, x + spread*(-1.0 + 2.0*random()/(double)RAND_MAX));
-					particles[squareSide*i+j].setImportance(1.0/particles.size());
+					particles[i] = Particle(double(mapSize)*random()/(double)RAND_MAX,
+							double(mapSize)*random()/(double)RAND_MAX);
+					particles[i].setImportance(1.0/particles.size());
 				}
+
+
             }
 
 			void predict(const geometry_msgs::Twist &twist, double deltaT) {
@@ -149,9 +153,9 @@ namespace particle_filter_base {
                 }
             }
 
-            void update(const std::vector<std::pair<double,double> &vPointCoordinatesInPointCloud) {
+            void update(const std::pair<double, double>  &vRobotPosition_fromMeasurements) {
                 for (size_t i = 0; i < particles.size(); i++) {
-                    particles[i].updateImportance(vPointCoordinatesInPointCloud);
+                    particles[i].updateImportance(vRobotPosition_fromMeasurements);
                 }
                 resample();
             }
@@ -181,7 +185,7 @@ namespace particle_filter_base {
 					}
 					else
 					{
-						if(Particle::distance2D(particles[j1], particle[j2]) > mapSize_/2)
+						if(Particle::distance2D(particles[j1], particles[j2]) > mapSize_/2)
 							new_particles[i] = particles[j1];
 						else	// This should be the most common case
 						{
@@ -236,7 +240,6 @@ namespace particle_filter_base {
             cv::Mat dem, dem_cov;
             double dem_x_orig, dem_y_orig, dem_scale;
             ParticleFilter pf;
-            DEM* pDEM;
 
             bool demToWorld(const cv::Point2i & P, cv::Point2f & R) {
                 R = cv::Point2f(dem_x_orig + P.x*dem_scale,dem_y_orig + P.y*dem_scale);
@@ -254,27 +257,69 @@ namespace particle_filter_base {
             }
 
 			// Get a random index for the cloud point
-			static __forceinline size_t GetRandomIndex(unsigned long i)
+			static inline size_t GetRandomIndex(unsigned long i)
 			{
 				return std::min((rand() / (double) RAND_MAX) * i, (double) i - 1);
 			}
 
+            inline double ConvertIndexToWorldCoord(int i)
+             {
+                     return (double(i)/uiCellSize_)*dCellSize_;
+             }
+
+            inline int ConvertWorldCoordToIndex(double d)
+            {
+            	return d*dCellSize_/double(uiCellSize_);
+            }
+
         protected: // ROS Callbacks
 			
-			void findInDEMCellWithTargetHeight(double z, double tolerance, std::pair<double, double> &output)
-			{
-				std::vector<std::pair<double, double>> vPointsWithHeightZ;
-				for(int i = 0; i < m_uiCellSize; i++)
-				{
-					for(int j = 0; j < m_uiCellSize; j++)
-					{
-						if(fabs(dem.at<float>(m, n) - z) < tolerance)
-							vPointsWithHeightZ.push_back(std::make_pair(dem.ConvertIndexToWorldCoord(m), dem.ConvertIndexToWorldCoord(n)));
-					}
-				}
-				// Choose a random point among the ones found ?
-				output = vPointsWithHeightZ[(rand() % (int)(vPointsWithHeightZ.size()))];
-			}
+            // Find if mat(m, n) is such that the surrounding points follow the distribution in vConfig
+            bool foundConfiguration(const std::vector<pcl::PointXYZ> &vConfig, cv::Mat &mat, int m, int n)
+            {
+            	int i = m+ConvertWorldCoordToIndex(vConfig[0].x);
+            	int j = n+ConvertWorldCoordToIndex(vConfig[0].y);
+            	if(m+i>mat.size().width || m+i<0 || n+j>mat.size().width || n+j<0)
+            		return false;
+
+            	double reference = mat.at<float>(m, n);
+            	for(auto it=vConfig.begin(); it != vConfig.end(); ++it)
+            	{
+            		i = ConvertWorldCoordToIndex(it->x);
+            		j = ConvertWorldCoordToIndex(it->y);
+            		if(m+i>mat.size().width || m+i<0 || n+j>mat.size().width || n+j<0)
+            			continue;
+            		if(fabs((mat.at<float>(m+i,n+i)-reference)-it->z)>toleranceForDEMParsing)
+            			return false;
+            	}
+            	return true;
+            }
+
+            void DetermineRobotPositionFromDEM(std::vector<pcl::PointXYZ> &vMeasurements, std::pair<double, double> &robotPosition, double yaw)
+            {
+            	// Rescaling
+            	double reference = vMeasurements[0].z;
+            	for(auto it=vMeasurements.begin(); it!=vMeasurements.end(); ++it)
+            	{
+            			it->z-=reference;
+            			double x = it->x;
+            			double y = it->y;
+            			it->x = cos(yaw)*x-sin(yaw)*y;
+            			it->y = sin(yaw)*x+cos(yaw)*y;
+            	}
+            	for(int i = 0; i < dem.size().height; i++)
+            	{
+            		for(int j = 0; j < dem.size().width; j++)
+            		{
+            			if(foundConfiguration(vMeasurements, dem, i, j))
+            			{
+            				robotPosition.first = ConvertIndexToWorldCoord(i);
+            				robotPosition.second = ConvertIndexToWorldCoord(j);
+            			}
+            		}
+            	}
+
+            }
 
             void pc_callback(const sensor_msgs::PointCloud2ConstPtr msg) {
                 static Timer sTimer;
@@ -289,7 +334,7 @@ namespace particle_filter_base {
                 header.stamp = msg->header.stamp;
                 header.frame_id = base_frame_;
 
-				if(sDeltaTime == -INT_MAX)
+				if(sDeltaT == -INT_MAX)
 				{
 					sTimer.start();
 					sDeltaT = 0.0;
@@ -299,25 +344,31 @@ namespace particle_filter_base {
 					sDeltaT = sTimer.stop();
 					sTimer.start();
 				}
-				
+				if (sDeltaT > 10)
+					sDeltaT = 0;
+
                 //
                 pf.predict(twist, sDeltaT);
-                if (dem_received && dem_cov_received) {
+                if (dem_received ) {
 					dem_received = false;
-					dem_cov_received = false;
 					// Take K points in the lastpc_
-					std::vector<double> vMeasurements;
+					std::vector<pcl::PointXYZ> vMeasurements;
 					for(int i=0; i<K_; ++i)
-						// Maybe uniform sampling is not good enough for this part
-						vMeasurements.push_back(lastpc_[GetRandomIndex(lastpc_.size()].z);
-					std::vector<std::pair<double, double>> vPointCoordinatesInPointCloud;
-					for(int i=0; i<K_; ++i)
-					{
-						std::pair<double, double> pt;
-						findInDEMCellWithTargetHeight(vMeasurements[i], tolerance_, pt);
-						vPointCoordinatesInPointCloud.push_back(pt);
-					}
-                    pf.update(vPointCoordinatesInPointCloud);
+						vMeasurements.push_back(lastpc_[GetRandomIndex(lastpc_.size())]);
+					std::pair<double, double> robotPosition;
+					// Get yaw
+					listener_.waitForTransform("/world", base_frame_,
+							msg->header.stamp, ros::Duration(1.0));
+					tf::StampedTransform transform;
+					listener_.lookupTransform("/world", base_frame_,
+							msg->header.stamp, transform);
+					auto Q = transform.getRotation();
+					tf::Matrix3x3 M;
+					M.setRotation(Q);
+					double roll, pitch, yaw;
+					M.getRPY(roll, pitch, yaw);
+					DetermineRobotPositionFromDEM(vMeasurements, robotPosition, yaw);
+                    pf.update(robotPosition);
                 }
                 pf.publishPoseArray(header, pose_pub_);
             }
@@ -327,7 +378,7 @@ namespace particle_filter_base {
                 // In theory, this would require a mutex, but because the
                 // callbacks are called by ROS, we know that only one of them
                 // is running at a time. 
-                dem = cv_bridge::toCvShare(msg,"mono8")->image;
+                dem = cv_bridge::toCvShare(msg,"rgba8")->image;
             }
 
             void dem_cov_callback(const sensor_msgs::ImageConstPtr& msg) {
@@ -335,7 +386,7 @@ namespace particle_filter_base {
                 // In theory, this would require a mutex, but because the
                 // callbacks are called by ROS, we know that only one of them
                 // is running at a time. 
-                dem_cov = cv_bridge::toCvShare(msg,"mono8")->image;
+                dem_cov = cv_bridge::toCvShare(msg,"rgba8")->image;
             }
 
             void twist_callback(const geometry_msgs::TwistStamped& msg){
@@ -359,6 +410,8 @@ namespace particle_filter_base {
                 nh_.param("dem_x_orig",dem_x_orig,0.0);
                 nh_.param("dem_y_orig",dem_y_orig,0.0);
                 nh_.param("dem_scale",dem_scale,1.0);
+                nh_.param("toleranceForDEMParsing",toleranceForDEMParsing,0.05);
+
 
                 pf.initialise(num_particles_,0.0,initial_spread_, mapSize_);
 
@@ -373,7 +426,6 @@ namespace particle_filter_base {
                 DEM_sub_ = it_.subscribe<ParticleFilterLocalisation>("dem",1, &ParticleFilterLocalisation::dem_callback,this,transport);
                 DEM_cov_sub_ = it_.subscribe<ParticleFilterLocalisation>("dem_covariance",1, &ParticleFilterLocalisation::dem_cov_callback,this,transport);
 
-                pDEM = new DEM(1.0, 10);
             }
 
     };

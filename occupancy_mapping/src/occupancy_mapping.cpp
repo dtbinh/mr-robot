@@ -262,7 +262,7 @@ protected:
 //		pcl_pub_.publish(testPC);
 		// Publish the results
 		m_pCartography->PublishImage();
-		m_pDME->PublishToFile();
+		m_pDME->PublishImage();
 
 		/*
 		 * ==========================
@@ -400,7 +400,7 @@ public:
 		marker_pub_ = nh_.advertise<visualization_msgs::Marker>("floor_plane", 1);
 		// Mapping classes
 		m_pCartography = new Cartography(nh_, 1.0, 10);
-		m_pDME = new DEM(1.0, 10);
+		m_pDME = new DEM(1.0, 10, nh_);
 
 		// Point Cloud
 		obstaclePC.header.frame_id = world_frame_;

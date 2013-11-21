@@ -100,8 +100,8 @@ add_executable(occupancy_mapping
 src/occupancy_mapping.cpp
 src/Cartography.cpp
 src/Cartography.h
-src/DME.cpp
-src/DME.h
+src/DEM.cpp
+src/DEM.h
 )
 
 ## Add cmake target dependencies of the executable/library

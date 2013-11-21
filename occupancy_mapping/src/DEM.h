@@ -19,38 +19,43 @@ struct BlockMatrixData;
 class DEM
 {
 protected:
-	// Map = Cells. Cells = Fixed size matrices. Matrix elements = data about a world space square of dimension m_dCellSize.
-	std::map<int, BlockMatrixData*> m_CellMap;
-	// Concatenates data from the map of cells.
-	cv::Mat *m_pFinalMatrix;
+        image_transport::ImageTransport m_ImageTransport;
+        image_transport::Publisher m_DEMPublisher;
+        image_transport::Publisher m_DEMCovPublisher;
 
-	cv::Mat *m_pFinalVarianceMatrix;
+        // Map = Cells. Cells = Fixed size matrices. Matrix elements = data about a world space square of dimension m_dCellSize.
+        std::map<int, BlockMatrixData*> m_CellMap;
+        // Concatenates data from the map of cells.
+        cv::Mat *m_pFinalMatrix;
 
-	const double m_dCellSize;
-	// Size of the matrix representing a square cell of dimension m_dCellSize
-	const unsigned int m_uiCellSize;
-	// i, j : row/column of the block matrix to access cells
-	// Stores the maximum i
-	int m_MaxCellRow;
-	int m_MinCellRow;
-	// Stores the maximum j
-	int m_MaxCellColumn;
-	int m_MinCellColumn;
-	
-	// Used to avoid having to re-create at each Publish m_pFinalMatrix
-	int m_OldMaxCellRow;
-	int m_OldMinCellRow;
-	int m_OldMaxCellColumn;
-	int m_OldMinCellColumn;
+        cv::Mat *m_pFinalVarianceMatrix;
+
+        const double m_dCellSize;
+        // Size of the matrix representing a square cell of dimension m_dCellSize
+        const unsigned int m_uiCellSize;
+        // i, j : row/column of the block matrix to access cells
+        // Stores the maximum i
+        int m_MaxCellRow;
+        int m_MinCellRow;
+        // Stores the maximum j
+        int m_MaxCellColumn;
+        int m_MinCellColumn;
+
+        // Used to avoid having to re-create at each Publish m_pFinalMatrix
+        int m_OldMaxCellRow;
+        int m_OldMinCellRow;
+        int m_OldMaxCellColumn;
+        int m_OldMinCellColumn;
 
 public:
-	DEM(double dCellSize, unsigned int uiCellSize);
+        DEM(double dCellSize, unsigned int uiCellSize, ros::NodeHandle &nh);
+        ~DEM();
 
-	~DEM();
+        void PublishToFile();
+        void PublishImage();
 
-	void PublishToFile();
-
-	void Update(double x, double y, double data);
-	cv::Mat* getMat();
-	cv::Mat* getVarMat();
+        void Update(double x, double y, double data);
+        inline double ConvertIndexToWorldCoord(int i)   {return (double(i)/m_uiCellSize)*m_dCellSize;}
+        cv::Mat* getMat();
+        cv::Mat* getVarMat();
 };
