@@ -22,6 +22,39 @@
 #include "DEM.h"
 
 
+#include <stdlib.h>
+#include <sys/time.h>
+#include <random>
+
+class Timer {
+private:
+
+	timeval startTime;
+
+public:
+
+	void start(){
+		gettimeofday(&startTime, NULL);
+	}
+
+	double stop(){
+		timeval endTime;
+		long seconds, useconds;
+		double duration;
+
+		gettimeofday(&endTime, NULL);
+
+		seconds  = endTime.tv_sec  - startTime.tv_sec;
+		useconds = endTime.tv_usec - startTime.tv_usec;
+
+		duration = seconds + useconds/1000000.0;
+
+		return duration;
+	}
+
+};
+
+
 namespace particle_filter_base {
 
     class Particle {
@@ -29,18 +62,26 @@ namespace particle_filter_base {
             // here some state
     		double x;
     		double y;
+			double z;
             double importance;
         public:
-            Particle() : importance(0.0) {}
+            Particle(double _x, double _y, double _z) : x(_x), y(_y), z(_z), importance(0.0) {}
             // Some initialisation
-            Particle(double i) : importance(i) {}
+            Particle(double _x, double _y, double i) : x(_x), y(_y), z(_z), importance(i) {}
 
             // The prediction stage need to apply some control
-            void applyControl(double u) {
+			// Input : linear velocity and angular velocity
+            void applyControl(const geometry_msgs::Twist &twist, double deltaT) {
+				std::default_random_engine generator;
+				std::normal_distribution<double> distribution(0.0,0.1);
+				// We assume instant speed change
+				x += twist.linear.x*deltaT;
+				y += twist.linear.y*deltaT;
             }
 
             // The observation stage need to update the particle importance
-            void updateImportance(double z) {
+			// TODO
+            void updateImportance(const std::vector<std::pair<double,double> &vPointCoordinatesInPointCloud) {
             }
 
             double getImportance() const {
@@ -53,8 +94,8 @@ namespace particle_filter_base {
 
             // Convert the particle state to a ROS pose for display in RVIZ
             void toPoseMessage(geometry_msgs::Pose & pose) {
-                pose.position.x = 0.0;
-                pose.position.y = 0.0;
+                pose.position.x = x;
+                pose.position.y = z;
                 pose.position.z = 0.0;
                 pose.orientation = tf::createQuaternionMsgFromRollPitchYaw(0.0, 0.0, 0.0);
             }
@@ -67,23 +108,31 @@ namespace particle_filter_base {
         public:
             ParticleFilter() {}
 
-            void initialise(size_t num_particles, double x, double spread) {
+            void initialise(size_t num_particles, double x, double spread, double mapSize) {
                 particles.resize(num_particles);
+				int squareSide = sqrt(num_particles);	// The map is a square
+				// Choose a uniform initial distribution of points
+				for (size_t i = 0; i < squareSide; i++) {
+					for (size_t j = 0; j < squareSide; i++) {
+						particles[squareSide*i+j] = Particle(double(mapSize)*double(i)/double(squareSide), double(mapSize)*double(j)/double(squareSide), 0.0, x + spread*(-1.0 + 2.0*random()/(double)RAND_MAX));
+						particles[squareSide*i+j].setImportance(1.0/particles.size());
+					}
+				}
+				for (size_t i = squareSide*squareSide; i < num_particles; i++) {
+					particles[squareSide*i+j] = Particle(double(mapSize)*random()/(double)RAND_MAX), double(mapSize)*random()/(double)RAND_MAX), 0.0, x + spread*(-1.0 + 2.0*random()/(double)RAND_MAX));
+					particles[squareSide*i+j].setImportance(1.0/particles.size());
+				}
+            }
+
+			void predict(const geometry_msgs::Twist &twist, double deltaT) {
                 for (size_t i = 0; i < particles.size(); i++) {
-                    particles[i] = Particle(x + spread*(-1.0 + 2.0*random()/(double)RAND_MAX));
-                    particles[i].setImportance(1.0/particles.size());
+                    particles[i].applyControl(twist, deltaT);
                 }
             }
 
-            void predict(double u) {
+            void update(const std::vector<std::pair<double,double> &vPointCoordinatesInPointCloud) {
                 for (size_t i = 0; i < particles.size(); i++) {
-                    particles[i].applyControl(u);
-                }
-            }
-
-            void update(double z) {
-                for (size_t i = 0; i < particles.size(); i++) {
-                    particles[i].updateImportance(z);
+                    particles[i].updateImportance(vPointCoordinatesInPointCloud);
                 }
                 resample();
             }
@@ -104,7 +153,8 @@ namespace particle_filter_base {
                 for (size_t i = 0; i < particles.size(); i++) {
                     double u = random() / (double)RAND_MAX;
                     int j = (int)round(inv_cdf(u));
-                    new_particles[i] = particles[i];
+					// Some interpolation would be nice. Otherwise we need to compensate with a large number of particles.
+                    new_particles[i] = particles[j];
                     new_particles[j].setImportance(1.0/particles.size());
                 }
                 particles = new_particles;
@@ -121,7 +171,6 @@ namespace particle_filter_base {
             }
     };
 
-
     class ParticleFilterLocalisation {
         protected:
             ros::NodeHandle nh_;
@@ -136,6 +185,10 @@ namespace particle_filter_base {
             double max_range_;
             int num_particles_;
             double initial_spread_;
+			double mapSize_;
+			// Lame variable name...
+			int K_;
+			double tolerance_;
 
             pcl::PointCloud<pcl::PointXYZ> lastpc_;
 
@@ -163,10 +216,34 @@ namespace particle_filter_base {
                 return true;
             }
 
+			// Get a random index for the cloud point
+			static __forceinline size_t GetRandomIndex(unsigned long i)
+			{
+				return std::min((rand() / (double) RAND_MAX) * i, (double) i - 1);
+			}
+
         protected: // ROS Callbacks
+			
+			void findInDEMCellWithTargetHeight(double z, double tolerance, std::pair<double, double> &output)
+			{
+				std::vector<std::pair<double, double>> vPointsWithHeightZ;
+				for(int i = 0; i < m_uiCellSize; i++)
+				{
+					for(int j = 0; j < m_uiCellSize; j++)
+					{
+						if(fabs(dem.at<float>(m, n) - z) < tolerance)
+							vPointsWithHeightZ.push_back(std::make_pair(dem.ConvertIndexToWorldCoord(m), dem.ConvertIndexToWorldCoord(n)));
+					}
+				}
+				// Choose a random point among the ones found ?
+				output = vPointsWithHeightZ[(rand() % (int)(vPointsWithHeightZ.size()))];
+			}
 
             void pc_callback(const sensor_msgs::PointCloud2ConstPtr msg) {
-                std_msgs::Header header;
+                static Timer sTimer;
+				static double sDeltaT = 0.0;
+
+				std_msgs::Header header;
                 pcl::PointCloud<pcl::PointXYZ> temp;
                 pcl::fromROSMsg(*msg, temp);
                 // Make sure the point cloud is in the base-frame
@@ -175,10 +252,35 @@ namespace particle_filter_base {
                 header.stamp = msg->header.stamp;
                 header.frame_id = base_frame_;
 
+				if(sDeltaTime == -INT_MAX)
+				{
+					sTimer.start();
+					sDeltaT = 0.0;
+				}
+				else
+				{
+					sDeltaT = sTimer.stop();
+					sTimer.start();
+				}
+				
                 //
-                pf.predict(0.0);
+                pf.predict(twist, sDeltaT);
                 if (dem_received && dem_cov_received) {
-                    pf.update(lastpc_[0].z);
+					dem_received = false;
+					dem_cov_received = false;
+					// Take K points in the lastpc_
+					std::vector<double> vMeasurements;
+					for(int i=0; i<K_; ++i)
+						// Maybe uniform sampling is not good enough for this part
+						vMeasurements.push_back(lastpc_[GetRandomIndex(lastpc_.size()].z);
+					std::vector<std::pair<double, double>> vPointCoordinatesInPointCloud;
+					for(int i=0; i<K_; ++i)
+					{
+						std::pair<double, double> pt;
+						findInDEMCellWithTargetHeight(vMeasurements[i], tolerance_, pt);
+						vPointCoordinatesInPointCloud.push_back(pt);
+					}
+                    pf.update(vPointCoordinatesInPointCloud);
                 }
                 pf.publishPoseArray(header, pose_pub_);
             }
@@ -211,13 +313,17 @@ namespace particle_filter_base {
                 nh_.param("max_range",max_range_,5.0);
                 nh_.param("num_particles",num_particles_,100);
                 nh_.param("initial_spread",initial_spread_,1.0);
+				nh_.param("mapSize",mapSize_, 10.0);
+				
+				nh_.param("K",K_, 50);
+				nh_.param("tolerance",tolerance_, 0.005);
 
                 // DEM parameters
                 nh_.param("dem_x_orig",dem_x_orig,0.0);
                 nh_.param("dem_y_orig",dem_y_orig,0.0);
                 nh_.param("dem_scale",dem_scale,1.0);
 
-                pf.initialise(num_particles_,0.0,initial_spread_);
+                pf.initialise(num_particles_,0.0,initial_spread_, mapSize_);
 
                 dem_received = dem_cov_received = false;
 

@@ -51,6 +51,7 @@ public:
 	void PublishToFile();
 
 	void Update(double x, double y, double data);
+	inline double ConvertIndexToWorldCoord(int i)	{return (double(i)/m_uiCellSize)*m_dCellSize;}
 	cv::Mat* getMat();
 	cv::Mat* getVarMat();
 };
