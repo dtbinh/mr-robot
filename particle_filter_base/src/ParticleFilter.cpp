@@ -24,7 +24,7 @@
 #include <sys/time.h>
 #include <random>
 
-static double mapSize_ = 10.0;
+static double mapSize_ = 1.0;
 static double dCellSize_ = 1.0;
 static unsigned int uiCellSize_ = 10;
 static double toleranceForDEMParsing = 0.05;
