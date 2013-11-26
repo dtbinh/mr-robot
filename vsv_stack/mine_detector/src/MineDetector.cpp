@@ -194,7 +194,7 @@ protected:
 		{
 			// it->second.second: index of the pixel column in the projected image from the camera
 			if(it->second.second == indexToSearch)
-				vVerticalPixelCoordinates.push_back(it->second.first);
+				vVerticalPixelCoordinates.push_back(ConvertFloorPixelCoordinatesToCameraSpace(it->second.first));
 		}
 		m_PointToTrack.first = sParameters.line_equation_a;
 		// Takes the average
@@ -233,9 +233,9 @@ protected:
 		}
 	}
 
-	// Predict the next position of the tool
+	// Predicts the next position of the point tracked and send a command so that the tool follows the point.
 	// No filtering
-	void PredictToolPosition()
+	void UpdateArmCommand()
 	{
 		static Timer sTimer;
 		static double sDeltaT = -INT_MAX;
@@ -266,9 +266,12 @@ protected:
 		//ROS_INFO("Predicted position (%f, %f)", predicted_x, predicted_y);
 
 		// Compute the next position of the tool in the world space
-		double predicted_tool_x = m_WorldSpaceToolPosition.x() + m_ArmTipCommand.linear.x*sDeltaT;
-		double predicted_tool_y = m_WorldSpaceToolPosition.y() + m_ArmTipCommand.linear.y*sDeltaT;
-		double predicted_tool_z = m_WorldSpaceToolPosition.z() + m_ArmTipCommand.linear.z*sDeltaT;
+		//double predicted_tool_x = m_WorldSpaceToolPosition.x() + m_ArmTipCommand.linear.x*sDeltaT;
+		//double predicted_tool_y = m_WorldSpaceToolPosition.y() + m_ArmTipCommand.linear.y*sDeltaT;
+		//double predicted_tool_z = m_WorldSpaceToolPosition.z() + m_ArmTipCommand.linear.z*sDeltaT;
+		// Do not take into account the current arm command because it will be overwritten
+		double predicted_tool_x = m_WorldSpaceToolPosition.x() + deltaX;
+		double predicted_tool_y = m_WorldSpaceToolPosition.y() + deltaY;
 		//ROS_INFO("Predicted tool position (%f, %f)", predicted_tool_x, predicted_tool_y);
 
 		// We know that any mine would have been installed at the interface between the flat gray squares and the 
@@ -285,12 +288,15 @@ protected:
 		// The equation of the new line after the transformation is :
 		// nX(y-deltaY)-nY(x-line_equation_a-deltaX)=0
 		// Now determine the intersection between this line and the interface.
-		std::pair<double, double> predictedToolPosition;
-		ComputePointToTrack2(predictedToolPosition, nx, ny,  deltaX, deltaY);
+		std::pair<double, double> predictedPointToTrack;
+		ComputePointToTrack2(predictedPointToTrack, nx, ny,  deltaX, deltaY);
 
 		// Calculate the movement required for the arm to follow the interface
-		double delta_tool_x = predictedToolPosition.first-m_PointToTrack.first;
-		double delta_tool_y = predictedToolPosition.second-m_PointToTrack.second;
+		double delta_tool_x = predictedPointToTrack.first-m_PointToTrack.first;
+		double delta_tool_y = predictedPointToTrack.second-m_PointToTrack.second;
+		// The lines below require the tool position in the projected camera space
+		//double delta_tool_x = predictedPointToTrack.first-predicted_tool_x;
+		//double delta_tool_y = predictedPointToTrack.second-predicted_tool_y;
 		// For obstacles
 		double delta_tool_z = 0;
 		// Send the arm command
@@ -312,7 +318,9 @@ protected:
 			return;
 		}
 		DetectInterface(m_Interface);
+		// Actually, we may not use this
 		ComputePointToTrack();
+		UpdateArmCommand();
 	}
 
 	void MetalDetectorCallback(const std_msgs::Float32 v)
