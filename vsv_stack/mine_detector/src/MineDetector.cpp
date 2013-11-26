@@ -15,6 +15,17 @@
 #include <map>
 #include <vector>
 
+struct MineDetectorParameters
+{
+	// Dimensions of the projected image from floor_projector
+	double floor_size_pix;
+	double floor_size_meter;
+	double line_equation_a;
+	double belong_to_line_tolerance;
+};
+
+static MineDetectorParameters sParameters;
+
 ////////////
 // Utilities
 
@@ -30,6 +41,25 @@ static double squaredDistance2D(double x1, double y1, double x2, double y2)
 	double dy=y2-y1;
 	return dx*dx+dy*dy;
 }
+
+static double ConvertFloorPixelCoordinatesToCameraSpace(double p)
+{
+	return p*sParameters.floor_size_meter/sParameters.floor_size_pix;
+}
+
+static double ConvertCameraSpaceCoordinatesToFloorPixel(double p)
+{
+	return p*sParameters.floor_size_pix/sParameters.floor_size_meter;
+}
+
+// Bijection from N^2 to N
+static int BijectioN2ToN(int x, int y)
+{
+	return x+(x+y)*(x+y+1)/2;
+}
+
+// End of utilities
+///////////////////
 
 class Timer
 {
@@ -71,6 +101,7 @@ protected:
 	ros::Time m_MsgHeaderStamp;
 	std::vector<tf::Vector3> m_vMinesPositions;
 
+	////////
 	// State
 	tf::Vector3 m_WorldSpaceRobotPosition;
 	tf::Vector3 m_WorldSpaceToolPosition;
@@ -81,7 +112,9 @@ protected:
 
 	cv_bridge::CvImagePtr m_pProcessedImage;
 	// Vector in which the indices correspond to the indices in m_pProcessedImage where the interface was found
-	std::vector<std::pair<int,int>> m_Interface;
+	std::map<int,std::pair<int, int>> m_Interface;
+	// (x,y) coordinates in the projected camera space
+	std::pair<double, double> m_PointToTrack;
 
 protected:
 	//===============//
@@ -117,8 +150,9 @@ protected:
 	}
 
 	// Detects the change of color in a picture (with a low number of different colors)
-	// The result is store in a vector in which the indices correspond to the indices in the picture
-	void DetectInterface(std::vector<std::pair<int,int>> &out)
+	// The result is store in a map in which the indices correspond to the indices in the picture
+	// The key is obtained with BijectioN2ToN. We use a map to avoid doobloons
+	void DetectInterface(std::map<int,std::pair<int, int>> &out)
 	{
 		unsigned char b, g, r, b_, g_, r_;
 		out.clear();
@@ -130,23 +164,72 @@ protected:
 				//{
 				//   c = m_pProcessedImage->imageData[m_pProcessedImage->widthStep * row + col * m_pProcessedImage->nChannels + z];
 				//}
-				b = m_pProcessedImage->imageData[img->widthStep * row + col * 3]
-				g = m_pProcessedImage->imageData[img->widthStep * row + col * 3 + 1];
-				r = m_pProcessedImage->imageData[img->widthStep * row + col * 3 + 2];
+				b = m_pProcessedImage->imageData[m_pProcessedImage->widthStep * row + col * 3]
+				g = m_pProcessedImage->imageData[m_pProcessedImage->widthStep * row + col * 3 + 1];
+				r = m_pProcessedImage->imageData[m_pProcessedImage->widthStep * row + col * 3 + 2];
 				for(int i=-1;i<=1; i=i+2)
 				{
 					for(int j=-1;j<=1; j=j+2)
 					{
 						int row_ = Clip(row+i,0,m_pProcessedImage->height);
 						int col_ = Clip(col+j,0,m_pProcessedImage->width);
-						b_ = m_pProcessedImage->imageData[img->widthStep * row_ + col_ * 3]
-						g_ = m_pProcessedImage->imageData[img->widthStep * row_ + col_ * 3 + 1];
-						r_ = m_pProcessedImage->imageData[img->widthStep * row_ + col_ * 3 + 2];
+						b_ = m_pProcessedImage->imageData[m_pProcessedImage->widthStep * row_ + col_ * 3]
+						g_ = m_pProcessedImage->imageData[m_pProcessedImage->widthStep * row_ + col_ * 3 + 1];
+						r_ = m_pProcessedImage->imageData[m_pProcessedImage->widthStep * row_ + col_ * 3 + 2];
 						if(b != b_ ||g != g_ ||r !== r_)
-							out.push_back(std::make_pair(row_, col_));
+							out.insert(std::make_pair<int,std::pair<int, int>>(BijectioN2ToN(row_,col_), std::make_pair(row_, col_)));
 					}
 				}
 			}
+		}
+	}
+
+	// This function computes the intersection between x=a (in the camera space coordinates) and the interface found by DetectInterface.
+	// Updates m_PointToTrack. Coordinates are given in the projected camera image space
+	void ComputePointToTrack()
+	{
+		double indexToSearch = ConvertCameraSpaceCoordinatesToFloorPixel(sParameters.line_equation_a);
+		std::vector<double> vVerticalPixelCoordinates;
+		for(auto it = m_Interface.begin(); it != m_Interface.end(); ++it)
+		{
+			// it->second.second: index of the pixel column in the projected image from the camera
+			if(it->second.second == indexToSearch)
+				vVerticalPixelCoordinates.push_back(it->second.first);
+		}
+		m_PointToTrack.first = sParameters.line_equation_a;
+		// Takes the average
+		m_PointToTrack.second = 0.0;
+		for(auto it = vVerticalPixelCoordinates.begin(); it != vVerticalPixelCoordinates.end(); ++it)
+			m_PointToTrack.second += *it;
+		m_PointToTrack.second /= vVerticalPixelCoordinates.size();
+	}
+
+	// Same as ComputePointToTrack but compute the intersection with a line (in the camera space coordinates) given by the equation
+	// nX(y-deltaY)-nY(x-line_equation_a-deltaX)=0
+	void ComputePointToTrack2(std::pair<double, double> &out, double nx, double ny, double deltaX, double deltaY)
+	{
+		std::vector<double> vHorizontalPixelCoordinates;
+		std::vector<double> vVertitalPixelCoordinates;
+		for(auto it = m_Interface.begin(); it != m_Interface.end(); ++it)
+		{
+			// it->second.first: index of the pixel row in the projected image from the camera
+			// it->second.second: index of the pixel column in the projected image from the camera
+			double y = ConvertFloorPixelCoordinatesToCameraSpace(it->second.first);
+			double x = ConvertFloorPixelCoordinatesToCameraSpace(it->second.second);
+			if( fabs(nX*(y-deltaY)-nY*(x-sParameters.line_equation_a-deltaX)) < sParameters.belong_to_line_tolerance)
+			{
+				vHorizontalPixelCoordinates.push_back(x);
+				vVertitalPixelCoordinates.push_back(y);
+			}
+			// Takes the average
+			out.first = 0.0;
+			out.second = 0.0;
+			for(auto it = vVertitalPixelCoordinates.begin(); it != vVertitalPixelCoordinates.end(); ++it)
+				out.second += *it;
+			for(auto it = vHorizontalPixelCoordinates.begin(); it != vHorizontalPixelCoordinates.end(); ++it)
+				out.first += *it;
+			out.first /= vHorizontalPixelCoordinates.size();
+			out.second /= vVertitalPixelCoordinates.size();
 		}
 	}
 
@@ -170,7 +253,7 @@ protected:
 
 		//ROS_INFO("Time elapsed %f", sDeltaT);
 
-		// Compute (x,y) the next position of the robot
+		// Compute the next position of the robot in world space
 		double theta = m_RobotSpeed.angular.z;
 		double deltaTheta = theta*sDeltaT;
 
@@ -178,13 +261,15 @@ protected:
 		double deltaX = v*cos(deltaTheta)*sDeltaT;
 		double deltaY = v*sin(deltaTheta)*sDeltaT;
 
-		double x = m_WorldSpaceRobotPosition.x() + deltaX;
-		double y = m_WorldSpaceRobotPosition.y() + deltaY;
+		double predicted_x = m_WorldSpaceRobotPosition.x() + deltaX;
+		double predicted_y = m_WorldSpaceRobotPosition.y() + deltaY;
+		//ROS_INFO("Predicted position (%f, %f)", predicted_x, predicted_y);
 
-		
-		double tool_x = m_WorldSpaceToolPosition.x() + m_ArmTipCommand.linear.x*sDeltaT;
-		double tool_y = m_WorldSpaceToolPosition.y() + m_ArmTipCommand.linear.y*sDeltaT;
-		double tool_z = m_WorldSpaceToolPosition.z() + m_ArmTipCommand.linear.z*sDeltaT;
+		// Compute the next position of the tool in the world space
+		double predicted_tool_x = m_WorldSpaceToolPosition.x() + m_ArmTipCommand.linear.x*sDeltaT;
+		double predicted_tool_y = m_WorldSpaceToolPosition.y() + m_ArmTipCommand.linear.y*sDeltaT;
+		double predicted_tool_z = m_WorldSpaceToolPosition.z() + m_ArmTipCommand.linear.z*sDeltaT;
+		//ROS_INFO("Predicted tool position (%f, %f)", predicted_tool_x, predicted_tool_y);
 
 		// We know that any mine would have been installed at the interface between the flat gray squares and the 
 		// brown earth, so we need to make sure that the sensor stays close to it while we're driving.
@@ -195,32 +280,17 @@ protected:
 		// The new origin is (deltaX, deltaY)
 	
 		// Normal vector (nx, ny) after rotation by deltaTheta
-		nX=cos(deltaTheta);
-		ny=sin(deltaTheta);
+		double nx=cos(deltaTheta);
+		double ny=sin(deltaTheta);
 		// The equation of the new line after the transformation is :
-		//nX(y-deltaY)-nY(x-deltaX)=0
+		// nX(y-deltaY)-nY(x-line_equation_a-deltaX)=0
 		// Now determine the intersection between this line and the interface.
-		// TODO: convert picture coordinates to coordinates in the projected image
-		unsigned char b, g, r;
-		for( int row = 0; row < m_pProcessedImage->height; ++row )
-		{
-			for ( int col = 0; col < m_pProcessedImage->width; ++col )
-			{
-				//for( int z = 0; z < m_pProcessedImage->nChannels; z++ )
-				//{
-				//   c = m_pProcessedImage->imageData[m_pProcessedImage->widthStep * row + col * m_pProcessedImage->nChannels + z];
-				//}
-				b = m_pProcessedImage->imageData[img->widthStep * row + col * 3]
-				g = m_pProcessedImage->imageData[img->widthStep * row + col * 3 + 1];
-				r = m_pProcessedImage->imageData[img->widthStep * row + col * 3 + 2];
-			}
-		}
+		std::pair<double, double> predictedToolPosition;
+		ComputePointToTrack2(predictedToolPosition, nx, ny,  deltaX, deltaY);
 
-
-		// TODO
 		// Calculate the movement required for the arm to follow the interface
-		double delta_tool_x = 0;
-		double delta_tool_y = 0;
+		double delta_tool_x = predictedToolPosition.first-m_PointToTrack.first;
+		double delta_tool_y = predictedToolPosition.second-m_PointToTrack.second;
 		// For obstacles
 		double delta_tool_z = 0;
 		// Send the arm command
@@ -242,6 +312,7 @@ protected:
 			return;
 		}
 		DetectInterface(m_Interface);
+		ComputePointToTrack();
 	}
 
 	void MetalDetectorCallback(const std_msgs::Float32 v)
@@ -251,8 +322,6 @@ protected:
 		if(v.data>0.95)	// Mine detected
 		{
 			//ROS_INFO("Found a mine");
-			//MineData.position = m_WorldSpaceRobotPosition;
-			//MineData.probabilityOfdetection = v.data;
 			// Check whether a mine at the same position has already been found
 			for(auto it = m_vMinesPositions.begin(); it!= m_vMinesPositions.end(); ++it)
 			{
@@ -291,6 +360,11 @@ public:
 	{
 		// Make sure TF is ready
 		ros::Duration(0.5).sleep();
+
+		m_NodeHandle.param("floor_size_pix", sParameters.floor_size_pix, 500);
+        m_NodeHandle.param("floor_size_meter", sParameters.floor_size_meter, 7.0);
+		m_NodeHandle.param("line_equation_a", sParameters.line_equation_a, 1.0);
+		m_NodeHandle.param("belong_to_line_tolerance", sParameters.belong_to_line_tolerance, 0.1);
 
 		m_FloorProjectorSubscriber = m_NodeHandle.subscribe("/floor_projector/floor", 1, &MineDetector::FloorProjectorCallback, this);
 		m_MetalDetectorSubscriber = m_NodeHandle.subscribe("/vrep/metalDetector", 1, &MineDetector::MetalDetectorCallback, this);
