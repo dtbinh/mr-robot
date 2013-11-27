@@ -12,6 +12,7 @@ from cv_bridge import CvBridge
 import math
 import tf
 import numpy
+import cv2
 
 class FloorMapper:
     def __init__(self):
@@ -30,12 +31,18 @@ class FloorMapper:
         self.x_floor = 0.0
         self.y_floor = self.floor_map.height / 2.0 + self.vertical_offset
         self.floor_scale = self.floor_map.width / image_extent
-
+        
         self.listener = tf.TransformListener()
         self.pub = rospy.Publisher("~floor",Image)
         rospy.Subscriber("~probabilities",Image,self.store_proba)
         rospy.Subscriber("~info",CameraInfo,self.store_info)
         rospy.loginfo("Waiting for first proba and camera info")
+        
+        # edge detection
+        self.floor_gray = cv.CreateImage((image_size,image_size), 8, 1)
+        self.floor_seg = cv.CreateImage((image_size,image_size), 8, 1)
+        self.floor_edge = cv.CreateImage((image_size,image_size), 8, 1)
+        self.pub_edge = rospy.Publisher("~edge", Image)
         while (not rospy.is_shutdown()) and ((not self.info) or (not self.proba)):
             rospy.sleep(0.1)
 
@@ -86,6 +93,22 @@ class FloorMapper:
             msg.header.frame_id = self.target_frame
             self.pub.publish(msg)
             # print "Publishing image"
+            
+           
+            
+            # Publish the edge image
+            # msg_e = cv.threshold(im, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
+            cv.CvtColor(self.floor_map, self.floor_gray, cv.CV_BGR2GRAY)
+            #cv.Canny(self.floor_map,self.floor_edge,100,200,3)
+            
+            #cv.Threshold(self.floor_seg,self.floor_edge,0, 255, cv2.THRESH_BINARY|cv2.THRESH_OTSU)
+            cv.Threshold(self.floor_gray,self.floor_seg, 180, 255, cv2.THRESH_BINARY)
+            cv.Canny(self.floor_seg,self.floor_edge,100,200,3)
+            
+            msg_e = self.br.cv_to_imgmsg(self.floor_edge,encoding='mono8')
+            msg_e.header.stamp = proba.header.stamp
+            msg_e.header.frame_id = self.target_frame
+            self.pub_edge.publish(msg_e)
             
         except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
             print "Exception while looking for transform"
