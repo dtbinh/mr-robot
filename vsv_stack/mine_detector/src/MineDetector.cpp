@@ -135,7 +135,6 @@ protected:
 		// Get the current world space robot position
 		m_Listener.waitForTransform("/world", "/body",
 			m_MsgHeaderStamp, ros::Duration(1.0));
-		tf::StampedTransform transform;
 		m_Listener.lookupTransform("/world", "/body",
 			m_MsgHeaderStamp, transform);
 
@@ -156,26 +155,26 @@ protected:
 	{
 		unsigned char b, g, r, b_, g_, r_;
 		out.clear();
-		for( int row = 0; row < m_pProcessedImage->height; ++row )
+		for( int row = 0; row < m_pProcessedImage->height(); ++row )
 		{
-			for ( int col = 0; col < m_pProcessedImage->width; ++col )
+			for ( int col = 0; col < m_pProcessedImage->width(); ++col )
 			{
 				//for( int z = 0; z < m_pProcessedImage->nChannels; ++z )
 				//{
 				//   c = m_pProcessedImage->imageData[m_pProcessedImage->widthStep * row + col * m_pProcessedImage->nChannels + z];
 				//}
-				b = m_pProcessedImage->imageData[m_pProcessedImage->widthStep * row + col * 3]
-				g = m_pProcessedImage->imageData[m_pProcessedImage->widthStep * row + col * 3 + 1];
-				r = m_pProcessedImage->imageData[m_pProcessedImage->widthStep * row + col * 3 + 2];
+				b = m_pProcessedImage->imageData()[m_pProcessedImage->step() * row + col * 3]
+				g = m_pProcessedImage->imageData()[m_pProcessedImage->step() * row + col * 3 + 1];
+				r = m_pProcessedImage->imageData()[m_pProcessedImage->step() * row + col * 3 + 2];
 				for(int i=-1;i<=1; i=i+2)
 				{
 					for(int j=-1;j<=1; j=j+2)
 					{
-						int row_ = Clip(row+i,0,m_pProcessedImage->height);
-						int col_ = Clip(col+j,0,m_pProcessedImage->width);
-						b_ = m_pProcessedImage->imageData[m_pProcessedImage->widthStep * row_ + col_ * 3]
-						g_ = m_pProcessedImage->imageData[m_pProcessedImage->widthStep * row_ + col_ * 3 + 1];
-						r_ = m_pProcessedImage->imageData[m_pProcessedImage->widthStep * row_ + col_ * 3 + 2];
+						int row_ = Clip(row+i,0,m_pProcessedImage->height());
+						int col_ = Clip(col+j,0,m_pProcessedImage->width());
+						b_ = m_pProcessedImage->imageData()[m_pProcessedImage->step() * row_ + col_ * 3]
+						g_ = m_pProcessedImage->imageData()[m_pProcessedImage->step() * row_ + col_ * 3 + 1];
+						r_ = m_pProcessedImage->imageData()[m_pProcessedImage->step() * row_ + col_ * 3 + 2];
 						if(b != b_ ||g != g_ ||r !== r_)
 							out.insert(std::make_pair<int,std::pair<int, int>>(BijectioN2ToN(row_,col_), std::make_pair(row_, col_)));
 					}
@@ -216,7 +215,7 @@ protected:
 			// it->second.second: index of the pixel column in the projected image from the camera
 			double y = ConvertFloorPixelCoordinatesToCameraSpace(it->second.first);
 			double x = ConvertFloorPixelCoordinatesToCameraSpace(it->second.second);
-			if( fabs(nX*(y-deltaY)-nY*(x-sParameters.line_equation_a-deltaX)) < sParameters.belong_to_line_tolerance)
+			if( fabs(nx*(y-deltaY)-ny*(x-sParameters.line_equation_a-deltaX)) < sParameters.belong_to_line_tolerance)
 			{
 				vHorizontalPixelCoordinates.push_back(x);
 				vVertitalPixelCoordinates.push_back(y);
@@ -369,7 +368,7 @@ public:
 		// Make sure TF is ready
 		ros::Duration(0.5).sleep();
 
-		m_NodeHandle.param("floor_size_pix", sParameters.floor_size_pix, 500);
+		m_NodeHandle.param("floor_size_pix", sParameters.floor_size_pix, 500.0);
         m_NodeHandle.param("floor_size_meter", sParameters.floor_size_meter, 7.0);
 		m_NodeHandle.param("line_equation_a", sParameters.line_equation_a, 1.0);
 		m_NodeHandle.param("belong_to_line_tolerance", sParameters.belong_to_line_tolerance, 0.1);
