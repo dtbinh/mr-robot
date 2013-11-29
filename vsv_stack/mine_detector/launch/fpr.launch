@@ -1,9 +1,18 @@
 <launch>
-
+<!--
   <node pkg="mine_detector" type="mine_detector" name="mine_detector" output="screen">
 	<param name="floor_size_pix" value="500"/>
 	<param name="floor_size_meter" value="7.0"/>
 	<param name="line_equation_a" value="1.0"/>
 	<param name="belong_to_line_tolerance" value="0.1"/>
+  </node>
+-->
+  <node pkg="mine_detector" type="obstacle_detector" name="obstacle_detector" output="screen">
+    <param name="base_frame" value="/VSV/ground"/>
+  	<param name="max_range" value="4.5"/>
+	<param name="obstacle_height" value="0.25" />
+	<param name="x_range" value="5" />
+	<param name="y_range" value="5" />
+	<param name="z_range" value="2" />
   </node>
 </launch>

@@ -50,12 +50,17 @@ include_directories(
 )
 
 ## Declare a cpp executable
-add_executable(mine_detector src/MineDetector.cpp)
+#add_executable(mine_detector src/MineDetector.cpp)
+add_executable(obstacle_detector src/ObstacleDetector.cpp)
+
+target_link_libraries(
+	obstacle_detector ${catkin_LIBRARIES}
+)
 
 ## Specify libraries to link a library or executable target against
-target_link_libraries(
-mine_detector ${OpenCV_LIBRARIES} ${catkin_LIBRARIES}
-)
+#target_link_libraries(
+#mine_detector ${OpenCV_LIBRARIES} ${catkin_LIBRARIES}
+#)
 
 #############
 ## Install ##
@@ -65,7 +70,7 @@ mine_detector ${OpenCV_LIBRARIES} ${catkin_LIBRARIES}
 # See http://ros.org/doc/api/catkin/html/adv_user_guide/variables.html
 
 ## Mark executables and/or libraries for installation
-install(TARGETS mine_detector
+install(TARGETS obstacle_detector
   ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}

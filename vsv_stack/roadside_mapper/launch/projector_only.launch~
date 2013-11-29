@@ -5,7 +5,7 @@
       <param name="horizon_offset_pix" value="-128"/>
       <param name="vertical_offset_pix" value="-250"/>
       <param name="floor_size_meter" value="7.0"/>
-      <param name="target_frame" value="/VSV/ArmPan"/>
+      <param name="target_frame" value="/world"/>
       <remap from="/floor_projector/probabilities" to="/vrep/visionSensor"/>
       <remap from="/floor_projector/info" to="/vrep/visionSensorInfo"/>
   </node>
