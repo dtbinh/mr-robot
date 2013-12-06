@@ -59,18 +59,15 @@ class FloorMapper:
             # (trans,rot) = self.listener.lookupTransform(proba.header.frame_id, '/world', proba.header.stamp)
             self.listener.waitForTransform(proba.header.frame_id,self.target_frame,proba.header.stamp,rospy.Duration(1.0))
 
-            cv.Smooth(self.proba,self.proba,cv.CV_GAUSSIAN,21,21,200) # smooth the image by a Gaussian filter
             msg = self.br.cv_to_imgmsg(self.proba,encoding='rgb8')
             msg.header.stamp = proba.header.stamp
             msg.header.frame_id = self.target_frame
-            
-            
             self.pub.publish(msg)
             # print "Publishing image"  
             
             # Publish the edge image
             cv.CvtColor(self.proba, self.floor_gray, cv.CV_BGR2GRAY)
-            cv.Threshold(self.floor_gray,self.floor_seg, 150, 255, cv2.THRESH_BINARY)
+            cv.Threshold(self.floor_gray,self.floor_seg, 180, 255, cv2.THRESH_BINARY)
             cv.Canny(self.floor_seg,self.floor_edge,100,200,3)
             
             msg_e = self.br.cv_to_imgmsg(self.floor_edge,encoding='mono8')
