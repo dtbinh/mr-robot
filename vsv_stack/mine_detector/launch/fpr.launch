@@ -1,9 +1,6 @@
 <launch>
 
   <node pkg="mine_detector" type="mine_detector" name="mine_detector" output="screen">
-	<param name="floor_size_pix" value="500"/>
-	<param name="floor_size_meter" value="7.0"/>
-	<param name="line_equation_a" value="1.0"/>
-	<param name="belong_to_line_tolerance" value="0.1"/>
+	<param name="floor_size_pix" value="256"/>
   </node>
 </launch>
