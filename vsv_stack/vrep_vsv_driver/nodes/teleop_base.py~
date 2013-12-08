@@ -40,9 +40,8 @@ def talker():
             if not timeout:
                 timeout = True
                 rospy.loginfo("Timeout: ignoring joystick commands")
-	if(twist.linear.x!=0) or (twist.linear.y!=0):
-        	pub.publish(twist)
-        	rate.sleep()
+        pub.publish(twist)
+        rate.sleep()
 
 
 if __name__ == '__main__':

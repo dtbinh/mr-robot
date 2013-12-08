@@ -50,7 +50,7 @@ include_directories(
 )
 
 ## Declare a cpp executable
-#add_executable(mine_detector src/MineDetector.cpp)
+add_executable(mine_detector src/MineDetector.cpp)
 add_executable(obstacle_detector src/ObstacleDetector.cpp)
 
 target_link_libraries(
@@ -58,9 +58,9 @@ target_link_libraries(
 )
 
 ## Specify libraries to link a library or executable target against
-#target_link_libraries(
-#mine_detector ${OpenCV_LIBRARIES} ${catkin_LIBRARIES}
-#)
+target_link_libraries(
+mine_detector ${OpenCV_LIBRARIES} ${catkin_LIBRARIES}
+)
 
 #############
 ## Install ##

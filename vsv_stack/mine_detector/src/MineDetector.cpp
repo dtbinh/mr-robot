@@ -87,7 +87,7 @@ public:
 };
 
 // The class which does the real job
-class MineDetector
+/*class MineDetector
 {
 protected:
 	ros::NodeHandle m_NodeHandle;
@@ -155,32 +155,32 @@ protected:
 	{
 		unsigned char b, g, r, b_, g_, r_;
 		out.clear();
-		for( int row = 0; row < m_pProcessedImage->height(); ++row )
-		{
-			for ( int col = 0; col < m_pProcessedImage->width(); ++col )
-			{
-				//for( int z = 0; z < m_pProcessedImage->nChannels; ++z )
-				//{
-				//   c = m_pProcessedImage->imageData[m_pProcessedImage->widthStep * row + col * m_pProcessedImage->nChannels + z];
-				//}
-				b = m_pProcessedImage->imageData()[m_pProcessedImage->step() * row + col * 3]
-				g = m_pProcessedImage->imageData()[m_pProcessedImage->step() * row + col * 3 + 1];
-				r = m_pProcessedImage->imageData()[m_pProcessedImage->step() * row + col * 3 + 2];
-				for(int i=-1;i<=1; i=i+2)
-				{
-					for(int j=-1;j<=1; j=j+2)
-					{
-						int row_ = Clip(row+i,0,m_pProcessedImage->height());
-						int col_ = Clip(col+j,0,m_pProcessedImage->width());
-						b_ = m_pProcessedImage->imageData()[m_pProcessedImage->step() * row_ + col_ * 3]
-						g_ = m_pProcessedImage->imageData()[m_pProcessedImage->step() * row_ + col_ * 3 + 1];
-						r_ = m_pProcessedImage->imageData()[m_pProcessedImage->step() * row_ + col_ * 3 + 2];
-						if(b != b_ ||g != g_ ||r !== r_)
-							out.insert(std::make_pair<int,std::pair<int, int>>(BijectioN2ToN(row_,col_), std::make_pair(row_, col_)));
-					}
-				}
-			}
-		}
+//		for( int row = 0; row < m_pProcessedImage->height(); ++row )
+//		{
+//			for ( int col = 0; col < m_pProcessedImage->width(); ++col )
+//			{
+//				//for( int z = 0; z < m_pProcessedImage->nChannels; ++z )
+//				//{
+//				//   c = m_pProcessedImage->imageData[m_pProcessedImage->widthStep * row + col * m_pProcessedImage->nChannels + z];
+//				//}
+//				b = m_pProcessedImage->imageData()[m_pProcessedImage->step() * row + col * 3]
+//				g = m_pProcessedImage->imageData()[m_pProcessedImage->step() * row + col * 3 + 1];
+//				r = m_pProcessedImage->imageData()[m_pProcessedImage->step() * row + col * 3 + 2];
+//				for(int i=-1;i<=1; i=i+2)
+//				{
+//					for(int j=-1;j<=1; j=j+2)
+//					{
+//						int row_ = Clip(row+i,0,m_pProcessedImage->height());
+//						int col_ = Clip(col+j,0,m_pProcessedImage->width());
+//						b_ = m_pProcessedImage->imageData()[m_pProcessedImage->step() * row_ + col_ * 3]
+//						g_ = m_pProcessedImage->imageData()[m_pProcessedImage->step() * row_ + col_ * 3 + 1];
+//						r_ = m_pProcessedImage->imageData()[m_pProcessedImage->step() * row_ + col_ * 3 + 2];
+//						if(b != b_ ||g != g_ ||r !== r_)
+//							out.insert(std::make_pair<int,std::pair<int, int>>(BijectioN2ToN(row_,col_), std::make_pair(row_, col_)));
+//					}
+//				}
+//			}
+//		}
 	}
 
 	// This function computes the intersection between x=a (in the camera space coordinates) and the interface found by DetectInterface.
@@ -379,7 +379,7 @@ public:
 		m_MineMarkerPublisher = m_NodeHandle.advertise<visualization_msgs::Marker>("mine",1);
 		m_ArmTwistPublisher = m_NodeHandle.advertise<geometry_msgs::Twist>("/arm_ik/twist",1);
 	}
-};
+};*/
 
 ///////////////////////
 // M   M  AA  I N  N //
@@ -390,7 +390,7 @@ public:
 
 int main(int argc, char * argv[]) {
 	ros::init(argc, argv, "mine_detector");
-	MineDetector node;
+//	MineDetector node;
 	ros::spin();
 	return 0;
 }

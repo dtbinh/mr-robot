@@ -28,7 +28,9 @@ protected:
 	pcl::PointCloud<pcl::PointXYZ> m_obstaclePointCloud;
 	geometry_msgs::PointStamped m_toolRefPS;
 	geometry_msgs::PointStamped m_toolBasePS;
+	geometry_msgs::PointStamped m_toolWorldPS;
 	geometry_msgs::Twist m_twist;
+	geometry_msgs::Twist m_armikTwist;
 
 	std::string m_baseFrame;
 	std::string m_worldFrame;
@@ -37,8 +39,6 @@ protected:
 	double m_xRange;
 	double m_yRange;
 	double m_zRange;
-	bool m_enableAvoidance;
-
 
 	void hokuyoSensorCallback(const sensor_msgs::PointCloud2ConstPtr& msg){
 		pcl::PointCloud<pcl::PointXYZ> temp;
@@ -56,12 +56,16 @@ protected:
 
 		m_obstaclePointCloud.header.frame_id = m_worldPointCloud.header.frame_id;
 
-		m_Listener.waitForTransform(m_baseFrame, "/VSV/Tool", msg->header.stamp,ros::Duration(1.0));
-		m_Listener.transformPoint(m_worldFrame, m_toolRefPS, m_toolBasePS);
+		// Tool's position in world frame
+		m_Listener.waitForTransform(m_worldFrame, "/VSV/Tool", msg->header.stamp, ros::Duration(1.0));
+		m_Listener.transformPoint(m_worldFrame, m_toolRefPS, m_toolWorldPS);
+		// Tool's position in base (ground) frame
+		m_Listener.waitForTransform(m_baseFrame, "/VSV/Tool", msg->header.stamp, ros::Duration(1.0));
+		m_Listener.transformPoint(m_baseFrame, m_toolRefPS, m_toolBasePS);
 
+		// Filter the points
 		size_t pcSize = m_basePointCloud.size();
 		std::vector<size_t> pidx;
-		// Filter the points
 		for(int i = 0; i < pcSize; ++i){
 			if (m_basePointCloud[i].x < m_xRange && fabs(m_basePointCloud[i].y)< m_yRange
 					&& m_basePointCloud[i].z < 2){
@@ -79,26 +83,25 @@ protected:
 					ROS_INFO("Found obstacle x:%f y:%f z:%f",p.x,p.y,p.z);
 					m_obstaclePointCloud.points.push_back(p);
 				}
-//				raiseArm();
 			}
 		});
 
-		ROS_INFO("Tool x:%f y:%f z:%f",m_toolBasePS.point.x,m_toolBasePS.point.y,m_toolBasePS.point.z);
-		if(isDangerous(m_obstaclePointCloud,m_toolBasePS.point)){
+		if(isDangerous(m_obstaclePointCloud,m_toolWorldPS.point)){
 			std::cout<<"Dangerous"<<std::endl;
-			raiseArm();
+			moveArm(0.5);
+		}else if(m_toolBasePS.point.z>0.4){
+			moveArm(-0.1);
 		}
 		m_obstaclePublisher.publish(m_obstaclePointCloud);
-//		m_obstaclePointCloud.clear(); // Clear the buffer
-//		std::cout<<m_obstaclePointCloud.size()<<std::endl; // Display the point cloud size
 	}
 
 	// Check if the point is in the point cloud
 	bool isPointExist(const pcl::PointCloud<pcl::PointXYZ>& pcl, const pcl::PointXYZ& p){
 		size_t pcSize = pcl.points.size();
 		for(int i = 0; i < pcSize; ++i){
-			if(fabs(p.x - pcl[i].x)<=0.2 && fabs(p.y - pcl[i].y)<=0.2
-					&& fabs(p.z - pcl[i].z)<0.1){
+			if(fabs(p.x - pcl[i].x)<=0.2 &&
+			   fabs(p.y - pcl[i].y)<=0.2 &&
+			   fabs(p.z - pcl[i].z)<0.1){
 				return true;
 			}
 		}
@@ -109,28 +112,20 @@ protected:
 	bool isDangerous(const pcl::PointCloud<pcl::PointXYZ>& pcl, const geometry_msgs::Point& p){
 		size_t pcSize = pcl.points.size();
 		for(int i = 0; i < pcSize; ++i){
-			// TODO determine dangerous range
-//			ROS_INFO("Obstacle x:%f y:%f z:%f",pcl[i].x,pcl[i].y,pcl[i].z);
-//			ROS_INFO("Dist x:%f y:%f z:%f",fabs(p.x - pcl[i].x),fabs(p.y - pcl[i].y),fabs(p.z - pcl[i].z));
-			if(fabs(p.x - pcl[i].x)<=0.5 && fabs(p.y - pcl[i].y)<=0.8 && fabs(p.z - pcl[i].z)<= 0.5){
+			if(fabs(p.x - pcl[i].x)<=1.0 && fabs(p.y - pcl[i].y)<=0.8 && (p.z - pcl[i].z)<= 0.3){
 				return true;
 			}
 		}
 		return false;
 	}
 
-	void twistCallback(const geometry_msgs::Twist& msg){
-		m_twist = std::move(msg);
-	}
-
-	void raiseArm(){
-		geometry_msgs::Twist t;
-		t.linear.z=0.1;
-		m_armTwistPublisher.publish(t);
+	void moveArm(double speed){
+		m_armikTwist.linear.z=speed;
+		m_armTwistPublisher.publish(m_armikTwist);
 	}
 
 public:
-	ObstacleDetector():m_NodeHandle("~"),m_enableAvoidance(false){
+	ObstacleDetector():m_NodeHandle("~"){
 		// Init params
 		m_NodeHandle.param("base_frame", m_baseFrame, std::string("/VSV/ground"));
 		m_NodeHandle.param("world_frame", m_worldFrame, std::string("/world"));
@@ -144,16 +139,14 @@ public:
 
 		m_HokuyoSensorSubscriber = m_NodeHandle.subscribe("/vrep/hokuyoSensor",1,
 				&ObstacleDetector::hokuyoSensorCallback, this);
-		m_twistSubscriber = m_NodeHandle.subscribe("/vsv_driver/twistCommand",1,
-				&ObstacleDetector::twistCallback, this);
 
 		m_obstaclePublisher = m_NodeHandle.advertise<pcl::PointCloud<pcl::PointXYZ>>("/obstacle",1);
-		m_armTwistPublisher = m_NodeHandle.advertise<geometry_msgs::Twist>("/arm_ik/twist",1);
+		m_armTwistPublisher = m_NodeHandle.advertise<geometry_msgs::Twist>("/arm_ik/twist",10);
 
 		m_toolRefPS.header.frame_id="/VSV/Tool";
 		m_toolRefPS.point.x=0;
 		m_toolRefPS.point.y=0;
-		m_toolRefPS.point.z=-0.25;
+		m_toolRefPS.point.z=0;
 	}
 };
 

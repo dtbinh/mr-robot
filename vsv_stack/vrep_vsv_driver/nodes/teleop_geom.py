@@ -60,8 +60,9 @@ class TeleopIK:
                     twist.linear.x = self.joy_value.axes[self.axis_arm_x]*self.arm_step
                     twist.linear.y = self.joy_value.axes[self.axis_arm_y]*self.arm_step
                     twist.linear.z = self.joy_value.axes[self.axis_arm_z]*self.arm_step
-                    self.tool_pub.publish(Float32(-pi/2))
-                    self.twist_pub.publish(twist)
+                    if (twist.linear.x!=0) or (twist.linear.y!=0) or (twist.linear.z!=0):
+                        self.tool_pub.publish(Float32(-pi/2))
+                        self.twist_pub.publish(twist)
             else:
                 if not timeout:
                     timeout = True
