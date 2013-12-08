@@ -21,10 +21,15 @@
 #include <map>
 #include <vector>
 
+#define PI 3.1415926535897932384626433832795
+
 struct MineDetectorParameters
 {
 	// Dimensions of the projected image from floor_projector
 	double floor_size_pix;
+	double robot_linear_speed;
+	double distance_to_line_threshold;
+	double orientation_correction;
 };
 
 static MineDetectorParameters sParameters;
@@ -84,12 +89,11 @@ class MineDetector
 {
 protected:
 	ros::NodeHandle m_NodeHandle;
-	ros::Subscriber m_RobotCommandSubscriber;
 	ros::Subscriber m_FloorProjectorSubscriber;
 	ros::Subscriber m_DepthSensorSubscriber;
 	ros::Subscriber m_MetalDetectorSubscriber;
 	ros::Publisher m_MineMarkerPublisher;
-	ros::Publisher m_ArmTwistPublisher;
+	ros::Publisher m_RobotTwistPublisher;
 	tf::TransformListener m_Listener;
 
 	ros::Time m_MsgHeaderStamp;
@@ -101,23 +105,18 @@ protected:
 	tf::Vector3 m_WorldSpaceToolPosition;
 	double m_Orientation;
 
-	geometry_msgs::Twist m_RobotSpeed;
-	geometry_msgs::Twist m_ArmTipCommand;
-
 	cv_bridge::CvImagePtr m_pProcessedImage;
 	// Vector in which the indices correspond to the indices in m_pProcessedImage where the interface was found
 	std::map<int,std::pair<int, int>> m_Interface;
 	// (row,column) coordinates in pixels
 	std::pair<double, double> m_PointToTrack;
+	// The orientation of the line to track with regards to the vertical
+	double m_dLineOrientation;
+	double m_dDistanceToTheLine;
 
 protected:
 	//===============//
 	// ROS Callbacks //
-
-	void RobotCommandCallback(const geometry_msgs::Twist msg)
-	{
-		m_RobotSpeed = msg;
-	}
 
 	void DepthSensorCallback(const sensor_msgs::PointCloud2ConstPtr msg)
 	{
@@ -150,7 +149,8 @@ protected:
 
 	// Detects the change of color in a picture (with a low number of different colors)
 	// The result is store in a map in which the indices correspond to the indices in the picture
-	// The key is obtained with BijectioN2ToN. We use a map to avoid doobloons
+	// The key is obtained with BijectioN2ToN. We use a map to avoid doobloons.
+	// Also calculate the angle in radians between the vertical and the line to track.
 	void DetectInterface(std::map<int,std::pair<int, int>> &out)
 	{
 		unsigned char data, data_;
@@ -168,9 +168,52 @@ protected:
 				}
 			}
 		}
+
+		// Compute the orientation of the line
+		int indexToSearch = sParameters.floor_size_pix/2.0;
+		std::vector<double> vVerticalPixelCoordinates;
+		for(auto it = m_Interface.begin(); it != m_Interface.end(); ++it)
+		{
+			// it->second.first: index of the pixel row in the projected image from the camera
+			if(it->second.first == indexToSearch)
+				vVerticalPixelCoordinates.push_back(it->second.second);
+		}
+		double y1 = indexToSearch;
+		// Takes the average
+		double x1 = 0;
+		for(auto it = vVerticalPixelCoordinates.begin(); it != vVerticalPixelCoordinates.end(); ++it)
+			x1 += *it;
+		if(vVerticalPixelCoordinates.size()==0)
+			x1 = DBL_MAX;
+		else
+			x1 /= vVerticalPixelCoordinates.size();
+
+		vVerticalPixelCoordinates.clear();
+		indexToSearch = sParameters.floor_size_pix/5.0;
+		for(auto it = m_Interface.begin(); it != m_Interface.end(); ++it)
+		{
+			// it->second.first: index of the pixel row in the projected image from the camera
+			if(it->second.first == indexToSearch)
+				vVerticalPixelCoordinates.push_back(it->second.second);
+		}
+		double y2 = indexToSearch+sParameters.floor_size_pix/2.0;
+		// Takes the average
+		double x2 = 0;
+		for(auto it = vVerticalPixelCoordinates.begin(); it != vVerticalPixelCoordinates.end(); ++it)
+			x2 += *it;
+		if(vVerticalPixelCoordinates.size()==0)
+			x2 = DBL_MAX;
+		else
+			x2 /= vVerticalPixelCoordinates.size();
+
+		m_dLineOrientation = atan((x2-x1)/(y2-y1));
+		if(x1==DBL_MAX || x2==DBL_MAX)	// Lost sight of the line to track
+			m_dLineOrientation = 0.0;
+
+		ROS_INFO("Line orientation %f",m_dLineOrientation);
 	}
 
-	// This function computes the intersection between the middle of the picture
+	// This function computes the intersection between the horizontal line in middle of the picture
 	void ComputePointToTrack()
 	{
 		int indexToSearch = sParameters.floor_size_pix/2.0;
@@ -191,34 +234,64 @@ protected:
 		else
 			m_PointToTrack.second /= vVerticalPixelCoordinates.size();
 
+		if(m_PointToTrack.second != DBL_MAX)
+			m_dDistanceToTheLine = m_PointToTrack.second-sParameters.floor_size_pix/2.0;
+		else
+			m_dDistanceToTheLine = DBL_MAX;
+
 		ROS_INFO("Point to track %f %f", m_PointToTrack.first, m_PointToTrack.second);
 	}
 
 	// Predicts the next position of the point tracked and send a command so that the tool follows the point.
 	// No filtering
-	void UpdateArmCommand()
+	void UpdateRobotCommand()
 	{
-		// Calculate the movement required for the arm to follow the interface
-		double delta_tool_y = 0.0;
+		static Timer sTimer;
+		static double sDeltaT = -INT_MAX;
 
-		double delta_tool_x;
-		if(m_PointToTrack.second == DBL_MAX)
-			delta_tool_x = 0.0;
+		if(sDeltaT == -INT_MAX)
+		{
+			sTimer.start();
+			sDeltaT = 0.0;
+		}
 		else
 		{
-			double K = 3.0;
-			double temp = K*(m_PointToTrack.second - sParameters.floor_size_pix/2.0)/sParameters.floor_size_pix;
-			delta_tool_x = temp;
+			sDeltaT = sTimer.stop();
+			sTimer.start();
 		}
 
-		// For obstacles
-		double delta_tool_z = 0;
-		// Send the arm command
-		geometry_msgs::Twist armCommand;
-		armCommand.linear.x = delta_tool_x;
-		ROS_INFO("armCommand.linear.x %f armCommand.linear.y %f",armCommand.linear.x, armCommand.linear.y);
+		//ROS_INFO("Time elapsed %f", sDeltaT);
 
-		m_ArmTwistPublisher.publish(armCommand);
+		// Compute the difference in orientation between the line to track and the robot
+		double delta_orientation;
+
+		double v_x;
+		if(m_PointToTrack.second == DBL_MAX)
+		{
+			delta_orientation = 0.0;
+			v_x = 0.0;
+			ROS_INFO("Lost sight of the line to track");
+		}
+		else
+		{
+			delta_orientation = -m_dLineOrientation;
+			// Add a correction if we get too close or too far from the line to track
+			if(m_dDistanceToTheLine > 0 && m_dDistanceToTheLine > sParameters.distance_to_line_threshold)	// We are too far from the line
+				delta_orientation -= sParameters.orientation_correction;
+			else if(m_dDistanceToTheLine < 0 && (-m_dDistanceToTheLine) > sParameters.distance_to_line_threshold)	// We are too close to the line
+				delta_orientation += sParameters.orientation_correction;
+			v_x = sParameters.robot_linear_speed;
+		}
+
+		ROS_INFO("delta_orientation %f v_x %f", delta_orientation, v_x);
+
+		// Send the arm command
+		geometry_msgs::Twist robotCommand;
+		robotCommand.linear.x = v_x;
+		if(sDeltaT != 0.0)
+			robotCommand.angular.z = delta_orientation/sDeltaT;
+		for(int i=0;i<150;++i)
+			m_RobotTwistPublisher.publish(robotCommand);
 	}
 
 	void FloorProjectorCallback(const sensor_msgs::Image msg)
@@ -233,9 +306,8 @@ protected:
 			return;
 		}
 		DetectInterface(m_Interface);
-		// Actually, we may not use this
 		ComputePointToTrack();
-		UpdateArmCommand();
+		UpdateRobotCommand();
 	}
 
 	void MetalDetectorCallback(const std_msgs::Float32 v)
@@ -285,13 +357,16 @@ public:
 		ros::Duration(0.5).sleep();
 
 		m_NodeHandle.param("floor_size_pix", sParameters.floor_size_pix, 500.0);
-
+		m_NodeHandle.param("robot_linear_speed", sParameters.robot_linear_speed, 0.4);
+		// We apply a correction when the distance to the line to track is greater than distance_to_line_threshold
+		m_NodeHandle.param("distance_to_line_threshold", sParameters.distance_to_line_threshold, 64.0);
+		m_NodeHandle.param("orientation_correction", sParameters.orientation_correction, 0.3);
+		
 		m_FloorProjectorSubscriber = m_NodeHandle.subscribe("/floor_projector/edge", 1, &MineDetector::FloorProjectorCallback, this);
-		m_RobotCommandSubscriber = m_NodeHandle.subscribe<geometry_msgs::Twist>("/vsv_driver/twistCommand",1,&MineDetector::RobotCommandCallback, this);
 		m_MetalDetectorSubscriber = m_NodeHandle.subscribe("/vrep/metalDetector", 1, &MineDetector::MetalDetectorCallback, this);
 		m_DepthSensorSubscriber = m_NodeHandle.subscribe("/vrep/depthSensor", 1, &MineDetector::DepthSensorCallback, this);
 		m_MineMarkerPublisher = m_NodeHandle.advertise<visualization_msgs::Marker>("mine",1);
-		m_ArmTwistPublisher = m_NodeHandle.advertise<geometry_msgs::Twist>("/arm_ik/twist",1);
+		m_RobotTwistPublisher = m_NodeHandle.advertise<geometry_msgs::Twist>("/vsv_driver/twistCommand",1);
 	}
 };
 
@@ -303,6 +378,7 @@ public:
 ///////////////////////
 
 int main(int argc, char * argv[]) {
+	srand (time(NULL));
 	ros::init(argc, argv, "mine_detector");
 	MineDetector node;
 	ros::spin();

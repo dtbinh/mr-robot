@@ -1,0 +1,9 @@
+<launch>
+
+  <node pkg="line_tracking" type="line_tracking" name="line_tracking" output="screen">
+	<param name="floor_size_pix" value="256"/>
+	<param name="robot_linear_speed" value="0.4"/>
+	<param name="distance_to_line_threshold" value="15"/>
+	<param name="orientation_correction" value="0.3"/>
+  </node>
+</launch>

@@ -80,17 +80,17 @@ protected:
 				p.y = prec_1(m_worldPointCloud[idx].y);
 				p.z = prec_2(m_worldPointCloud[idx].z);
 				if(!isPointExist(m_obstaclePointCloud,p)){
-					ROS_INFO("Found obstacle x:%f y:%f z:%f",p.x,p.y,p.z);
 					m_obstaclePointCloud.points.push_back(p);
 				}
 			}
 		});
 
 		if(isDangerous(m_obstaclePointCloud,m_toolWorldPS.point)){
-			std::cout<<"Dangerous"<<std::endl;
-			moveArm(0.5);
-		}else if(m_toolBasePS.point.z>0.4){
-			moveArm(-0.1);
+			moveArm(1.0);
+		}else if(m_toolBasePS.point.z>0.5){
+			moveArm(-0.075);
+		}else if(m_toolBasePS.point.z<0.3){
+			moveArm(0.075);
 		}
 		m_obstaclePublisher.publish(m_obstaclePointCloud);
 	}
@@ -112,7 +112,7 @@ protected:
 	bool isDangerous(const pcl::PointCloud<pcl::PointXYZ>& pcl, const geometry_msgs::Point& p){
 		size_t pcSize = pcl.points.size();
 		for(int i = 0; i < pcSize; ++i){
-			if(fabs(p.x - pcl[i].x)<=1.0 && fabs(p.y - pcl[i].y)<=0.8 && (p.z - pcl[i].z)<= 0.3){
+			if(fabs(p.x - pcl[i].x)<=1.2 && fabs(p.y - pcl[i].y)<=1.2 && (p.z - pcl[i].z)<= 0.3){
 				return true;
 			}
 		}
